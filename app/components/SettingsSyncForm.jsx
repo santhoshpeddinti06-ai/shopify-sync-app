@@ -1,33 +1,60 @@
 import { useState } from 'react';
+import { Card, FormLayout, TextField, Button, Text, Spinner } from '@shopify/polaris';
 
-export default function SettingsSyncForm({ onSync }) {
-  const [prodDomain, setProdDomain] = useState('');
-  const [stageDomain, setStageDomain] = useState('');
+export default function SettingsSyncForm() {
+  // Pre-filled dev store domains
+  const [prodDomain, setProdDomain] = useState('santosh-dev.myshopify.com');
+  const [stageDomain] = useState('santosh-dev2.myshopify.com'); // read-only
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState('');
 
-  const handleSync = () => {
-    onSync(prodDomain, stageDomain);
+  const handleSync = async () => {
+    setLoading(true);
+    setMessage('');
+    try {
+      const response = await fetch('/api/sync/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prodDomain, stageDomain }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        setMessage('Settings synced successfully!');
+      } else {
+        setMessage('Sync failed: ' + (result.error || 'Unknown error'));
+      }
+    } catch (err) {
+      // console.error(err);
+      setMessage('Sync failed: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <div className="p-4 border rounded">
-      <h2 className="text-xl font-bold mb-2">Sync Shopify Settings</h2>
-      <input
-        type="text"
-        placeholder="Production Store Domain"
-        value={prodDomain}
-        onChange={(e) => setProdDomain(e.target.value)}
-        className="border p-2 mb-2 w-full"
-      />
-      <input
-        type="text"
-        placeholder="Stage Store Domain"
-        value={stageDomain}
-        onChange={(e) => setStageDomain(e.target.value)}
-        className="border p-2 mb-2 w-full"
-      />
-      <button onClick={handleSync} className="bg-blue-500 text-white p-2 rounded">
-        Sync Settings
-      </button>
-    </div>
+    <Card sectioned>
+      <Text variant="headingLg" as="h2">
+        Sync Shopify Settings
+      </Text>
+      <FormLayout>
+        <TextField
+          label="Production Store Domain"
+          value={prodDomain}
+          onChange={setProdDomain}
+          placeholder="e.g., santosh-dev.myshopify.com"
+        />
+        <TextField
+          label="Stage Store Domain"
+          value={stageDomain}
+          readOnly
+        />
+        <Button primary onClick={handleSync} disabled={loading}>
+          {loading ? <Spinner size="small" /> : 'Sync Settings'}
+        </Button>
+        {message && <Text variant="bodyMd">{message}</Text>}
+      </FormLayout>
+    </Card>
   );
 }
