@@ -36,7 +36,7 @@ mutation {
 
 // Helper to call Shopify GraphQL Admin API
 async function callShopifyGraphQL(storeDomain, token, query) {
-  const res = await fetch(`https://${storeDomain}/admin/api/2025-01/graphql.json`, {
+  const res = await fetch(`https://${storeDomain}/admin/api/2025-10/graphql.json`, { // updated API version
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -44,6 +44,15 @@ async function callShopifyGraphQL(storeDomain, token, query) {
     },
     body: JSON.stringify({ query }),
   });
+
+  const contentType = res.headers.get("content-type");
+
+  if (!contentType || !contentType.includes("application/json")) {
+    const text = await res.text();
+    console.error(`Non-JSON response from ${storeDomain}:`, text);
+    throw new Error(`Shopify returned non-JSON response from ${storeDomain}`);
+  }
+
   return res.json();
 }
 
@@ -55,12 +64,12 @@ export async function action({ request }) {
       return json({ success: false, error: "Both store domains are required" }, { status: 400 });
     }
 
-    // 1.Fetch prod store settings
+    // 1. Fetch prod store settings
     const prodData = await callShopifyGraphQL(prodDomain, PROD_ACCESS_TOKEN, SHOP_SETTINGS_QUERY);
     if (!prodData?.data?.shop) throw new Error("Failed to fetch production store settings");
     const prodSettings = prodData.data.shop;
 
-    // 2.Fetch and backup stage store settings
+    // 2. Fetch and backup stage store settings
     const stageData = await callShopifyGraphQL(stageDomain, STAGE_ACCESS_TOKEN, SHOP_SETTINGS_QUERY);
     if (!stageData?.data?.shop) throw new Error("Failed to fetch stage store settings");
     const stageSettings = stageData.data.shop;
