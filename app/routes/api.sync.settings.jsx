@@ -27,16 +27,23 @@ query {
 // GraphQL mutation to update shop settings
 const UPDATE_SHOP_SETTINGS_MUTATION = (input) => `
 mutation {
-  shopUpdate(input: ${JSON.stringify(input)}) {
-    shop { name email currencyCode }
-    userErrors { field message }
+  shopUpdate(input: ${JSON.stringify(input).replace(/"([^"]+)":/g, '$1:')}) {
+    shop {
+      name
+      email
+      currencyCode
+    }
+    userErrors {
+      field
+      message
+    }
   }
 }
 `;
 
 // Helper to call Shopify GraphQL Admin API
 async function callShopifyGraphQL(storeDomain, token, query) {
-  const res = await fetch(`https://${storeDomain}/admin/api/2025-10/graphql.json`, { // updated API version
+  const res = await fetch(`https://${storeDomain}/admin/api/2025-10/graphql.json`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -45,12 +52,17 @@ async function callShopifyGraphQL(storeDomain, token, query) {
     body: JSON.stringify({ query }),
   });
 
-  const contentType = res.headers.get("content-type");
+  if (!res.ok) {
+    const text = await res.text();
+    console.error(`HTTP error from ${storeDomain}:`, text);
+    throw new Error(`Shopify returned HTTP ${res.status}`);
+  }
 
+  const contentType = res.headers.get("content-type");
   if (!contentType || !contentType.includes("application/json")) {
     const text = await res.text();
     console.error(`Non-JSON response from ${storeDomain}:`, text);
-    throw new Error(`Shopify returned non-JSON response from ${storeDomain}`);
+    throw new Error(`Shopify returned non-JSON response`);
   }
 
   return res.json();
@@ -58,29 +70,33 @@ async function callShopifyGraphQL(storeDomain, token, query) {
 
 export async function action({ request }) {
   try {
-    const { prodDomain, stageDomain } = await request.json();
+    const formData = await request.formData();
+    const prodDomain = formData.get("prodDomain");
+    const stageDomain = formData.get("stageDomain");
 
     if (!prodDomain || !stageDomain) {
       return json({ success: false, error: "Both store domains are required" }, { status: 400 });
     }
 
-    // 1. Fetch prod store settings
+    // Fetch production store settings
     const prodData = await callShopifyGraphQL(prodDomain, PROD_ACCESS_TOKEN, SHOP_SETTINGS_QUERY);
     if (!prodData?.data?.shop) throw new Error("Failed to fetch production store settings");
     const prodSettings = prodData.data.shop;
 
-    // 2. Fetch and backup stage store settings
+    // Fetch stage store settings
     const stageData = await callShopifyGraphQL(stageDomain, STAGE_ACCESS_TOKEN, SHOP_SETTINGS_QUERY);
     if (!stageData?.data?.shop) throw new Error("Failed to fetch stage store settings");
     const stageSettings = stageData.data.shop;
 
-    // Save backup to file
-    const backupDir = path.join(process.cwd(), "backups");
-    if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
-    const backupFile = path.join(backupDir, `stage-backup-${Date.now()}.json`);
-    fs.writeFileSync(backupFile, JSON.stringify(stageSettings, null, 2));
+    // Save backup locally (optional, only in dev)
+    if (process.env.NODE_ENV !== "production") {
+      const backupDir = path.join(process.cwd(), "backups");
+      if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+      const backupFile = path.join(backupDir, `stage-backup-${Date.now()}.json`);
+      fs.writeFileSync(backupFile, JSON.stringify(stageSettings, null, 2));
+    }
 
-    // 3. Push prod settings to stage
+    // Push production settings to stage
     const mutation = UPDATE_SHOP_SETTINGS_MUTATION({
       name: prodSettings.name,
       email: prodSettings.email,
@@ -94,10 +110,9 @@ export async function action({ request }) {
 
     const updateRes = await callShopifyGraphQL(stageDomain, STAGE_ACCESS_TOKEN, mutation);
 
-    // Check for errors
     const errors = updateRes?.data?.shopUpdate?.userErrors || [];
     if (errors.length > 0) {
-      return json({ success: false, error: errors.map(e => e.message).join(", ") });
+      return json({ success: false, error: errors.map((e) => e.message).join(", ") });
     }
 
     return json({ success: true });

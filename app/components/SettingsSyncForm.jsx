@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Card, FormLayout, TextField, Button, Text, Spinner } from '@shopify/polaris';
 
 export default function SettingsSyncForm() {
-  // Pre-filled dev store domains
+  // Default store domains
   const [prodDomain, setProdDomain] = useState('santosh-dev.myshopify.com');
   const [stageDomain] = useState('santosh-dev2.myshopify.com'); // read-only
   const [loading, setLoading] = useState(false);
@@ -11,23 +11,33 @@ export default function SettingsSyncForm() {
   const handleSync = async () => {
     setLoading(true);
     setMessage('');
+
     try {
+      // Send POST request to your Remix API
       const response = await fetch('/api/sync/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prodDomain, stageDomain }),
       });
 
-      const result = await response.json();
+      // Read response as text to handle both JSON and error HTML
+      const text = await response.text();
+      let result;
+
+      try {
+        result = JSON.parse(text);
+      } catch {
+        console.error('Non-JSON response from server:', text);
+        throw new Error('Server returned non-JSON response (HTML or error page)');
+      }
 
       if (result.success) {
-        setMessage('Settings synced successfully!');
+        setMessage('✅ Settings synced successfully!');
       } else {
-        setMessage('Sync failed: ' + (result.error || 'Unknown error'));
+        setMessage('❌ Sync failed: ' + (result.error || 'Unknown error'));
       }
     } catch (err) {
-      // console.error(err);
-      setMessage('Sync failed: ' + err.message);
+      setMessage('⚠️ Sync failed: ' + err.message);
     } finally {
       setLoading(false);
     }
