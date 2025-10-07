@@ -3,8 +3,6 @@ import { Form, useLoaderData } from "@remix-run/react";
 import { login } from "../../shopify.server";
 import styles from "./styles.module.css";
 
-import SyncThemes from "../../components/SyncThemes.jsx";
-
 export const loader = async ({ request }) => {
   const url = new URL(request.url);
 
@@ -39,14 +37,6 @@ export default function App() {
             </button>
           </Form>
         )}
-
-        <hr style={{margin: "20px 0"}} />
-
-        {/* Add Theme Sync function */}
-        <div>
-          <h2 className={styles.heading}>Theme Sync</h2>
-          <SyncThemes />
-        </div>
       </div>
     </div>
   );

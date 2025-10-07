@@ -24,6 +24,8 @@ export default function App() {
         </Link>
         <Link to="/app/settings">Sync Settings </Link>
         <Link to="/app/additional">Additional page</Link>
+        <Link to="/app/themes"
+              >Theme Sync</Link>
       </NavMenu>
       <Outlet />
     </AppProvider>
