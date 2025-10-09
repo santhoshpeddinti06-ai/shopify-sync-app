@@ -1,90 +1,104 @@
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 
 export default function ThemeSync() {
   const [themes, setThemes] = useState([]);
   const [selectedTheme, setSelectedTheme] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [status, setStatus] = useState("");
-  const [actionInProgress, setActionInProgress] = useState(false);
+  const [backupData, setBackupData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
 
-  // Fetch themes from backend
+  // Fetch themes dynamically
   useEffect(() => {
     async function fetchThemes() {
       try {
         const res = await fetch("/api/sync/themes");
-        if (!res.ok) throw new Error("Failed to fetch themes");
         const data = await res.json();
-        if (!data.themes) throw new Error("No themes returned");
-
-        setThemes(data.themes);
-        if (data.themes.length > 0) setSelectedTheme(data.themes[0].id);
+        setThemes(data.themes || []);
       } catch (err) {
-        console.error(err);
-        setStatus("Error fetching themes: " + err.message);
-      } finally {
-        setLoading(false);
+        console.error("Failed to fetch themes:", err);
+        setMessage("Failed to load themes");
       }
     }
     fetchThemes();
   }, []);
 
-  // Backup settings
+  // Backup handler
   const handleBackup = async () => {
-    if (!selectedTheme) return;
-    setStatus("Backing up settings...");
-    setActionInProgress(true);
+    if (!selectedTheme) {
+      setMessage("Please select a theme first");
+      return;
+    }
+
+    setLoading(true);
     try {
       const res = await fetch("/api/sync/theme-settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ themeId: selectedTheme, action: "backup" }),
       });
-      if (!res.ok) throw new Error("Backup failed");
       const data = await res.json();
-      setStatus(data.message || "Backup completed!");
+      if (data.value) {
+        setBackupData(JSON.parse(data.value)); // ✅ Save as parsed object
+      }
+      setMessage(data.message || "Backup completed!");
     } catch (err) {
       console.error(err);
-      setStatus("Backup failed: " + err.message);
+      setMessage("Backup failed");
     } finally {
-      setActionInProgress(false);
+      setLoading(false);
     }
   };
 
-  // Push settings
+  // Push handler with confirmation
   const handlePush = async () => {
-    if (!selectedTheme) return;
-    setStatus("Pushing settings...");
-    setActionInProgress(true);
+    if (!selectedTheme) {
+      setMessage("Please select a theme first");
+      return;
+    }
+
+    if (!backupData) {
+      setMessage("Please create a backup first before pushing.");
+      return;
+    }
+
+    if (!window.confirm("Are you sure you want to overwrite the production theme settings?")) {
+      return;
+    }
+
+    setLoading(true);
+
+    // Log payload for debugging
+    console.log("PUSH PAYLOAD:", {
+      theme_id: import.meta.env.VITE_PRODUCT_THEME_ID,
+      settings: backupData,
+    });
+
     try {
       const res = await fetch("/api/sync/push-theme-settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ themeId: selectedTheme }),
+        body: JSON.stringify({
+          theme_id: import.meta.env.VITE_PRODUCT_THEME_ID, // always prod theme
+          settings: backupData, // already parsed JS object
+        }),
       });
-      if (!res.ok) throw new Error("Push failed");
       const data = await res.json();
-      setStatus(data.message || "Push completed!");
+      setMessage(
+        data.success ? "Push completed!" : `Push failed: ${data.data?.errors || "Unknown error"}`
+      );
     } catch (err) {
       console.error(err);
-      setStatus("Push failed: " + err.message);
+      setMessage("Push failed due to network error");
     } finally {
-      setActionInProgress(false);
+      setLoading(false);
     }
   };
 
-  if (loading) return <p>Loading themes...</p>;
-  if (themes.length === 0) return <p>No themes found.</p>;
-
   return (
-    <div style={{ padding: "20px" }}>
-      <h2>Theme Sync Dashboard</h2>
-      <p>Select a theme to backup or push settings:</p>
-
-      <select
-        value={selectedTheme}
-        onChange={(e) => setSelectedTheme(e.target.value)}
-        style={{ padding: "5px", marginBottom: "10px" }}
-      >
+    <div>
+      <h2>Theme Sync</h2>
+      <select value={selectedTheme} onChange={(e) => setSelectedTheme(e.target.value)}>
+        <option value="">Select a theme</option>
         {themes.map((theme) => (
           <option key={theme.id} value={theme.id}>
             {theme.name} (ID: {theme.id})
@@ -93,19 +107,20 @@ export default function ThemeSync() {
       </select>
 
       <div style={{ marginTop: "10px" }}>
-        <button
-          onClick={handleBackup}
-          disabled={actionInProgress}
-          style={{ marginRight: "10px" }}
-        >
+        <button type="button" onClick={handleBackup} disabled={loading}>
           Backup Settings
         </button>
-        <button onClick={handlePush} disabled={actionInProgress}>
+        <button
+          type="button"
+          onClick={handlePush}
+          disabled={loading || !backupData}
+          style={{ marginLeft: "10px" }}
+        >
           Push Settings
         </button>
       </div>
 
-      {status && <p style={{ marginTop: "10px" }}>{status}</p>}
+      {message && <p style={{ marginTop: "10px" }}>{message}</p>}
     </div>
   );
 }

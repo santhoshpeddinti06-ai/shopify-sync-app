@@ -1,42 +1,11 @@
-// app/routes/api.sync.theme-settings.jsx
+// app/routes/api/sync/theme-settings.jsx
 import { json } from "@remix-run/node";
 import fetch from "node-fetch";
 import fs from "fs";
 
-const PROD_ACCESS_TOKEN = process.env.PROD_ACCESS_TOKEN;
-const PROD_SHOP = process.env.PROD_SHOP;
-
 const STAGE_ACCESS_TOKEN = process.env.STAGE_ACCESS_TOKEN;
 const STAGE_SHOP = process.env.STAGE_SHOP;
-const STAGE_THEME_ID = process.env.STAGE_THEME_ID; // ID of stage theme
-
-export const loader = async ({ request }) => {
-  const url = new URL(request.url);
-  const themeId = url.searchParams.get("theme_id");
-
-  if (!themeId) {
-    return json({ error: "theme_id is required" }, { status: 400 });
-  }
-
-  try {
-    const response = await fetch(
-      `https://${PROD_SHOP}/admin/api/2025-10/themes/${themeId}/assets.json?asset[key]=config/settings_data.json`,
-      {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Shopify-Access-Token": PROD_ACCESS_TOKEN,
-        },
-      }
-    );
-
-    const data = await response.json();
-    return json({ settings: data.asset });
-  } catch (err) {
-    console.error("Error fetching production theme settings:", err);
-    return json({ error: "Failed to fetch theme settings" }, { status: 500 });
-  }
-};
+const STAGE_THEME_ID = process.env.STAGE_THEME_ID;
 
 export const action = async ({ request }) => {
   const body = await request.json();
@@ -44,6 +13,7 @@ export const action = async ({ request }) => {
 
   if (act === "backup") {
     try {
+      // Fetch the settings_data.json from staging theme
       const response = await fetch(
         `https://${STAGE_SHOP}/admin/api/2025-10/themes/${STAGE_THEME_ID}/assets.json?asset[key]=config/settings_data.json`,
         {
@@ -61,10 +31,14 @@ export const action = async ({ request }) => {
       if (!fs.existsSync("./backups")) fs.mkdirSync("./backups");
       fs.writeFileSync(
         "./backups/settings_stage.json",
-        JSON.stringify(data.asset, null, 2)
+        JSON.stringify(data.asset.value, null, 2) // save raw JSON string
       );
 
-      return json({ success: true, data: data.asset });
+      // Return the raw JSON string to frontend
+      return json({
+        message: "Backup completed!",
+        value: data.asset.value, // <- raw JSON string ready for push
+      });
     } catch (err) {
       console.error("Stage backup failed:", err);
       return json({ error: "Stage backup failed" }, { status: 500 });
