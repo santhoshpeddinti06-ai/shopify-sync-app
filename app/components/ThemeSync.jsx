@@ -7,11 +7,11 @@ export default function ThemeSync() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
-  // Fetch themes dynamically
+  // Fetch available themes (from stage store)
   useEffect(() => {
     async function fetchThemes() {
       try {
-        const res = await fetch("/api/sync/themes");
+        const res = await fetch("/api/sync/stage-themes");
         const data = await res.json();
         setThemes(data.themes || []);
       } catch (err) {
@@ -22,23 +22,22 @@ export default function ThemeSync() {
     fetchThemes();
   }, []);
 
+
   // Backup handler
   const handleBackup = async () => {
-    if (!selectedTheme) {
-      setMessage("Please select a theme first");
-      return;
-    }
-
+    if (!selectedTheme) return setMessage("Please select a theme first");
     setLoading(true);
+
     try {
       const res = await fetch("/api/sync/theme-settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ themeId: selectedTheme, action: "backup" }),
       });
+
       const data = await res.json();
       if (data.value) {
-        setBackupData(JSON.parse(data.value)); // ✅ Save as parsed object
+        setBackupData(JSON.parse(data.value)); // always store as object
       }
       setMessage(data.message || "Backup completed!");
     } catch (err) {
@@ -49,45 +48,36 @@ export default function ThemeSync() {
     }
   };
 
-  // Push handler with confirmation
+  // Push handler
   const handlePush = async () => {
-    if (!selectedTheme) {
-      setMessage("Please select a theme first");
-      return;
-    }
-
-    if (!backupData) {
-      setMessage("Please create a backup first before pushing.");
-      return;
-    }
-
-    if (!window.confirm("Are you sure you want to overwrite the production theme settings?")) {
-      return;
-    }
+    if (!selectedTheme) return setMessage("Please select a theme first");
+    if (!backupData) return setMessage("Please create a backup first");
+    if (!window.confirm("Are you sure you want to push settings to production?")) return;
 
     setLoading(true);
-
-    // Log payload for debugging
-    console.log("PUSH PAYLOAD:", {
-      theme_id: import.meta.env.VITE_PRODUCT_THEME_ID,
-      settings: backupData,
-    });
-
     try {
+      const payload = {
+        themeId: import.meta.env.VITE_PRODUCT_THEME_ID,
+        settings: backupData,
+      };
+
+      console.log("PUSH PAYLOAD:", payload);
+
       const res = await fetch("/api/sync/push-theme-settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          theme_id: import.meta.env.VITE_PRODUCT_THEME_ID, // always prod theme
-          settings: backupData, // already parsed JS object
-        }),
+        body: JSON.stringify(payload),
       });
+
       const data = await res.json();
-      setMessage(
-        data.success ? "Push completed!" : `Push failed: ${data.data?.errors || "Unknown error"}`
-      );
+      if (!res.ok) {
+        console.error("Push failed:", data);
+        setMessage(`Push failed: ${data.data?.errors || data.error || "Unknown error"}`);
+      } else {
+        setMessage("Push completed successfully!");
+      }
     } catch (err) {
-      console.error(err);
+      console.error("Push error:", err);
       setMessage("Push failed due to network error");
     } finally {
       setLoading(false);
@@ -106,21 +96,14 @@ export default function ThemeSync() {
         ))}
       </select>
 
-      <div style={{ marginTop: "10px" }}>
-        <button type="button" onClick={handleBackup} disabled={loading}>
-          Backup Settings
-        </button>
-        <button
-          type="button"
-          onClick={handlePush}
-          disabled={loading || !backupData}
-          style={{ marginLeft: "10px" }}
-        >
+      <div style={{ marginTop: 10 }}>
+        <button onClick={handleBackup} disabled={loading}>Backup Settings</button>
+        <button onClick={handlePush} disabled={loading || !backupData} style={{ marginLeft: 10 }}>
           Push Settings
         </button>
       </div>
 
-      {message && <p style={{ marginTop: "10px" }}>{message}</p>}
+      {message && <p style={{ marginTop: 10 }}>{message}</p>}
     </div>
   );
 }

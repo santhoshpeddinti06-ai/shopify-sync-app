@@ -1,42 +1,52 @@
+// app/routes/api/sync/push-theme-settings.jsx
 import { json } from "@remix-run/node";
 import fetch from "node-fetch";
 
-const PROD_ACCESS_TOKEN = process.env.PROD_ACCESS_TOKEN;
-const PROD_SHOP = process.env.PROD_SHOP;
-
 export const action = async ({ request }) => {
   try {
-    const { theme_id, settings } = await request.json();
+    const body = await request.json();
+    const { themeId, settings } = body;
 
-    if (!theme_id || !settings) {
-      return json({ success: false, error: "Missing theme_id or settings" }, { status: 400 });
+    if (!themeId || !settings) {
+      return json({ success: false, error: "Missing themeId or settings" }, { status: 400 });
     }
 
-    // Push settings to production theme
-    const response = await fetch(`https://${PROD_SHOP}/admin/api/2025-10/themes/${theme_id}/assets.json`, {
+    // Use PROD shop and token from .env
+    const SHOP = process.env.PROD_SHOP;
+    const ACCESS_TOKEN = process.env.PROD_ACCESS_TOKEN;
+
+    if (!SHOP || !ACCESS_TOKEN) {
+      return json({ success: false, error: "Missing PROD_SHOP or PROD_ACCESS_TOKEN" }, { status: 500 });
+    }
+
+    // Prepare payload: Shopify requires 'value' to be a string
+    const payload = {
+      asset: {
+        key: "config/settings_data.json",
+        value: JSON.stringify(settings),
+      },
+    };
+
+    const url = `https://${SHOP}/admin/api/2025-10/themes/${themeId}/assets.json`;
+
+    const response = await fetch(url, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
-        "X-Shopify-Access-Token": PROD_ACCESS_TOKEN,
+        "X-Shopify-Access-Token": ACCESS_TOKEN,
       },
-      body: JSON.stringify({
-        asset: {
-          key: "config/settings_data.json",
-          value: JSON.stringify(settings), // Shopify requires string
-        },
-      }),
+      body: JSON.stringify(payload),
     });
 
     const data = await response.json();
 
-    if (data.errors) {
-      console.error("Shopify API Error:", data);
-      return json({ success: false, data }, { status: 400 });
+    if (!response.ok) {
+      return json({ success: false, data }, { status: response.status });
     }
 
     return json({ success: true, data });
-  } catch (err) {
-    console.error("Error pushing theme settings:", err);
-    return json({ success: false, error: err.message }, { status: 500 });
+  } catch (error) {
+    console.error("Push Theme Settings Error:", error);
+    return json({ success: false, error: error.message }, { status: 500 });
   }
 };
