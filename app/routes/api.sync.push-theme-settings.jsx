@@ -11,7 +11,6 @@ export const action = async ({ request }) => {
       return json({ success: false, error: "Missing themeId or settings" }, { status: 400 });
     }
 
-    // Use PROD shop and token from .env
     const SHOP = process.env.PROD_SHOP;
     const ACCESS_TOKEN = process.env.PROD_ACCESS_TOKEN;
 
@@ -19,7 +18,6 @@ export const action = async ({ request }) => {
       return json({ success: false, error: "Missing PROD_SHOP or PROD_ACCESS_TOKEN" }, { status: 500 });
     }
 
-    // Prepare payload: Shopify requires 'value' to be a string
     const payload = {
       asset: {
         key: "config/settings_data.json",
