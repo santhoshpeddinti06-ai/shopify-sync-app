@@ -1,67 +1,72 @@
 import { useState, useEffect } from "react";
 
 export default function ThemeSync() {
-  const [themes, setThemes] = useState([]);
-  const [selectedTheme, setSelectedTheme] = useState("");
+  const [stagingThemes, setStagingThemes] = useState([]);
+  const [selectedStagingTheme, setSelectedStagingTheme] = useState("");
   const [backupData, setBackupData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
-  // Fetch available themes (from stage store)
+  // Fetch staging themes from backend
   useEffect(() => {
-    async function fetchThemes() {
+    async function fetchStagingThemes() {
       try {
         const res = await fetch("/api/sync/stage-themes");
+        if (!res.ok) throw new Error(`Failed to fetch themes: ${res.status}`);
         const data = await res.json();
-        setThemes(data.themes || []);
+        setStagingThemes(data.themes || []);
       } catch (err) {
-        console.error("Failed to fetch themes:", err);
-        setMessage("Failed to load themes");
+        console.error(err);
+        setMessage("Failed to load staging themes");
       }
     }
-    fetchThemes();
+    fetchStagingThemes();
   }, []);
 
-
-  // Backup handler
+  // Backup settings from staging
   const handleBackup = async () => {
-    if (!selectedTheme) return setMessage("Please select a theme first");
+    if (!selectedStagingTheme) return setMessage("Select a staging theme first");
+
     setLoading(true);
+    setMessage("");
 
     try {
       const res = await fetch("/api/sync/theme-settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ themeId: selectedTheme, action: "backup" }),
+        body: JSON.stringify({
+          action: "backup",
+          themeId: selectedStagingTheme, // send selected theme ID
+        }),
       });
 
       const data = await res.json();
-      if (data.value) {
-        setBackupData(JSON.parse(data.value)); // always store as object
-      }
+
+      if (!res.ok) throw new Error(data.error || "Backup failed");
+
+      if (data.value) setBackupData(JSON.parse(data.value));
       setMessage(data.message || "Backup completed!");
     } catch (err) {
       console.error(err);
-      setMessage("Backup failed");
+      setMessage(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  // Push handler
+  // Push backup to production
   const handlePush = async () => {
-    if (!selectedTheme) return setMessage("Please select a theme first");
     if (!backupData) return setMessage("Please create a backup first");
-    if (!window.confirm("Are you sure you want to push settings to production?")) return;
+    if (!window.confirm("Push backup to production theme?")) return;
 
     setLoading(true);
+    setMessage("");
+
     try {
       const payload = {
-        themeId: import.meta.env.VITE_PRODUCT_THEME_ID,
+        themeId: parseInt(import.meta.env.VITE_PRODUCT_THEME_ID),
         settings: backupData,
       };
-
-      console.log("PUSH PAYLOAD:", payload);
 
       const res = await fetch("/api/sync/push-theme-settings", {
         method: "POST",
@@ -70,15 +75,15 @@ export default function ThemeSync() {
       });
 
       const data = await res.json();
-      if (!res.ok) {
-        console.error("Push failed:", data);
-        setMessage(`Push failed: ${data.data?.errors || data.error || "Unknown error"}`);
+
+      if (res.ok && data.success) {
+        setMessage("Push completed successfully ✅");
       } else {
-        setMessage("Push completed successfully!");
+        setMessage(`Push failed: ${data.errors || "Unknown error"}`);
       }
     } catch (err) {
-      console.error("Push error:", err);
-      setMessage("Push failed due to network error");
+      console.error(err);
+      setMessage("Network error ❌");
     } finally {
       setLoading(false);
     }
@@ -87,19 +92,33 @@ export default function ThemeSync() {
   return (
     <div>
       <h2>Theme Sync</h2>
-      <select value={selectedTheme} onChange={(e) => setSelectedTheme(e.target.value)}>
-        <option value="">Select a theme</option>
-        {themes.map((theme) => (
-          <option key={theme.id} value={theme.id}>
-            {theme.name} (ID: {theme.id})
-          </option>
-        ))}
-      </select>
+
+      <label>
+        Select Staging Theme:
+        <select
+          value={selectedStagingTheme}
+          onChange={(e) => setSelectedStagingTheme(e.target.value)}
+          style={{ marginLeft: 10 }}
+        >
+          <option value="">Select a theme</option>
+          {stagingThemes.map((theme) => (
+            <option key={theme.id} value={theme.id}>
+              {theme.name} (ID: {theme.id})
+            </option>
+          ))}
+        </select>
+      </label>
 
       <div style={{ marginTop: 10 }}>
-        <button onClick={handleBackup} disabled={loading}>Backup Settings</button>
-        <button onClick={handlePush} disabled={loading || !backupData} style={{ marginLeft: 10 }}>
-          Push Settings
+        <button onClick={handleBackup} disabled={loading}>
+          Backup Settings
+        </button>
+        <button
+          onClick={handlePush}
+          disabled={loading || !backupData}
+          style={{ marginLeft: 10 }}
+        >
+          Push to Production
         </button>
       </div>
 

@@ -1,50 +1,60 @@
-// app/routes/api/sync/push-theme-settings.jsx
 import { json } from "@remix-run/node";
 import fetch from "node-fetch";
+import fs from "fs";
+
+const STAGE_ACCESS_TOKEN = process.env.STAGE_ACCESS_TOKEN;
+const STAGE_SHOP = process.env.STAGE_SHOP;
 
 export const action = async ({ request }) => {
   try {
     const body = await request.json();
-    const { themeId, settings } = body;
+    const { action: act, themeId } = body;
 
-    if (!themeId || !settings) {
-      return json({ success: false, error: "Missing themeId or settings" }, { status: 400 });
+    if (act !== "backup") {
+      return json({ error: "Invalid action" }, { status: 400 });
     }
 
-    const SHOP = process.env.PROD_SHOP;
-    const ACCESS_TOKEN = process.env.PROD_ACCESS_TOKEN;
-
-    if (!SHOP || !ACCESS_TOKEN) {
-      return json({ success: false, error: "Missing PROD_SHOP or PROD_ACCESS_TOKEN" }, { status: 500 });
+    if (!themeId) {
+      return json({ error: "Missing themeId" }, { status: 400 });
     }
 
-    const payload = {
-      asset: {
-        key: "config/settings_data.json",
-        value: JSON.stringify(settings),
-      },
-    };
+    if (!STAGE_SHOP || !STAGE_ACCESS_TOKEN) {
+      return json({ error: "Missing staging environment variables" }, { status: 500 });
+    }
 
-    const url = `https://${SHOP}/admin/api/2025-10/themes/${themeId}/assets.json`;
+    // Fetch settings_data.json from staging theme
+    const url = `https://${STAGE_SHOP}/admin/api/2025-10/themes/${themeId}/assets.json?asset[key]=config/settings_data.json`;
 
     const response = await fetch(url, {
-      method: "PUT",
+      method: "GET",
       headers: {
         "Content-Type": "application/json",
-        "X-Shopify-Access-Token": ACCESS_TOKEN,
+        "X-Shopify-Access-Token": STAGE_ACCESS_TOKEN,
       },
-      body: JSON.stringify(payload),
     });
 
     const data = await response.json();
 
     if (!response.ok) {
-      return json({ success: false, data }, { status: response.status });
+      console.error("Shopify API error:", data);
+      return json({ error: "Stage backup failed", details: data }, { status: response.status });
     }
 
-    return json({ success: true, data });
-  } catch (error) {
-    console.error("Push Theme Settings Error:", error);
-    return json({ success: false, error: error.message }, { status: 500 });
+    if (!data.asset || !data.asset.value) {
+      console.error("No asset found:", data);
+      return json({ error: "Stage backup failed: No settings found" }, { status: 500 });
+    }
+
+    // Save backup locally
+    if (!fs.existsSync("./backups")) fs.mkdirSync("./backups");
+    fs.writeFileSync("./backups/settings_stage.json", data.asset.value);
+
+    return json({
+      message: "Backup completed!",
+      value: data.asset.value, // raw JSON string for push
+    });
+  } catch (err) {
+    console.error("Stage backup failed:", err);
+    return json({ error: "Stage backup failed", details: err.message }, { status: 500 });
   }
 };
