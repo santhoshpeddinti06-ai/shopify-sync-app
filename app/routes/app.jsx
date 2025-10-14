@@ -26,6 +26,7 @@ export default function App() {
         <Link to="/app/additional">Additional page</Link>
         <Link to="/app/themes"
               >Theme Sync</Link>
+        <Link to="/app/products">Products Sync</Link>
       </NavMenu>
       <Outlet />
     </AppProvider>

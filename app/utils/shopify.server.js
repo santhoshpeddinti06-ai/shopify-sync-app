@@ -1,30 +1,41 @@
-const { Clients } = require('@shopify/shopify-api');
+import { shopifyApi, LATEST_API_VERSION, GraphqlClient } from "@shopify/shopify-api";
 
+// ✅ Create a reusable GraphQL client for Shopify
 export const shopifyGraphQLClient = (storeDomain, accessToken) => {
-  return new Clients.GraphQL(storeDomain, accessToken);
+  return new GraphqlClient({
+    session: {
+      shop: storeDomain,
+      accessToken,
+    },
+    apiVersion: LATEST_API_VERSION,
+  });
 };
 
+// ✅ Fetch basic shop settings
 export async function fetchSettings(storeDomain, accessToken) {
   const client = shopifyGraphQLClient(storeDomain, accessToken);
 
-  const query = `{
-    shop {
-      name
-      email
-      myshopifyDomain
-      primaryLocale
-      currencyCode
-      weightUnit
-      moneyFormat
-      taxesIncluded
-      timezoneAbbreviation
+  const query = `
+    {
+      shop {
+        name
+        email
+        myshopifyDomain
+        primaryLocale
+        currencyCode
+        weightUnit
+        moneyFormat
+        taxesIncluded
+        timezoneAbbreviation
+      }
     }
-  }`;
+  `;
 
   const response = await client.query({ data: query });
   return response.body.data.shop;
 }
 
+// ✅ Push shop settings update
 export async function pushSettings(storeDomain, accessToken, settings) {
   const client = shopifyGraphQLClient(storeDomain, accessToken);
 
@@ -45,7 +56,7 @@ export async function pushSettings(storeDomain, accessToken, settings) {
   `;
 
   const response = await client.query({
-    data: { query: mutation, variables: { input: settings } }
+    data: { query: mutation, variables: { input: settings } },
   });
 
   return response.body.data.shopUpdate;
