@@ -45,7 +45,7 @@ export default function ThemeSync() {
       if (!res.ok) throw new Error(data.error || "Backup failed");
 
       if (data.value) setBackupData(JSON.parse(data.value));
-      setMessage(data.message || "Backup completed!");
+      setMessage(data.message || "Backup completed ✅");
     } catch (err) {
       console.error(err);
       setMessage(err.message);
