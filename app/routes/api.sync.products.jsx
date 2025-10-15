@@ -32,6 +32,9 @@ export const action = async ({ request }) => {
       process.env.STAGE_ACCESS_TOKEN
     );
 
+    console.log(products.length);
+    console.log(products.map(p=>p.title));
+
     let syncedCount = 0;
     for (const product of products) {
       await pushProductToStore(process.env.PROD_SHOP, process.env.PROD_ACCESS_TOKEN, product);

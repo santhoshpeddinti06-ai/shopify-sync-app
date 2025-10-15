@@ -41,18 +41,33 @@ export default function ProductSync() {
   }, [fetcher.data]);
 
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-semibold mb-4">🛍️ Product Sync</h1>
+    <div style={{ padding: "16px", fontFamily: "sans-serif" }}>
+      <h1 style={{
+        fontSize: "24px",
+        fontWeight: "600",
+        marginBottom: "16px",
+      }}
+      >🛍️ Product Sync</h1>
 
       <button
         onClick={handleSync}
         disabled={fetcher.state === "submitting"}
-        className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50"
+        style={{
+          backgroundColor: "#2563eb", // blue-600
+          color: "#fff",
+          padding: "8px 16px",
+          borderRadius: "6px",
+          cursor: fetcher.state === "submitting" ? "not-allowed" : "pointer",
+          opacity: fetcher.state === "submitting" ? 0.5 : 1,
+          transition: "0.3s",
+          border: "none",
+          marginBottom: "12px",
+        }}
       >
         {fetcher.state === "submitting" ? "Syncing..." : "Sync to Production"}
       </button>
 
-      {message && <p className="mt-3 text-green-600">{message}</p>}
+      {message && <p  style={{ marginTop: "12px", color: "#16a34a", fontWeight: 500 }}>{message}</p>}
 
       <div className="mt-6">
         {loading ? (
@@ -60,17 +75,72 @@ export default function ProductSync() {
         ) : products.length === 0 ? (
           <p>No products found in staging store.</p>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div style={{ display:"flex", flexWrap:"wrap",
+            justifyContent:"flex-start",gap:"16px",padding:"4rem"}}>
             {products.map((p) => (
-              <div key={p.id} className="border rounded-lg p-4 shadow-sm bg-white">
-                <h2 className="font-semibold text-lg">{p.title}</h2>
-                <p className="text-gray-600">
-                  Price: {p.variants?.[0]?.price ?? "N/A"}{" "}
-                  {p.variants?.[0]?.currencyCode ?? ""}
+              <div
+                key={p.id}
+                className="bg-white border rounded-md shadow-sm hover:shadow-md transition p-2 flex flex-col items-center text-center"
+                style={{ width: "140px", boxShadow:"0 0 10px 8px rgba(0,0,0,0.1)"}} // Card width
+              >
+                {/* Product Image */}
+                {p.images?.[0]?.src ? (
+                  <img
+                    src={p.images[0].src}
+                    alt={p.title}
+                    className="object-contain rounded-md mb-2"
+                    style={{ width: "140px", height: "120px"}} // Image size
+                  />
+                ) : (
+                  <div
+                    className="bg-gray-100 flex items-center justify-center rounded-md mb-2 text-xs text-gray-500"
+                    style={{ width: "140px", height: "100px"}}
+                  >
+                    No Image
+                  </div>
+                )}
+
+                {/* Product Title */}
+                <h2 style={{fontWeight:"500",marginLeft:"10px"}}>
+                  {p.title}
+                </h2>
+
+                {/* Price */}
+                <p  style={{marginLeft:"10px"}}>
+                  {p.variants?.[0]?.price
+                    ? `$${p.variants[0].price} ${p.variants[0].currencyCode ?? ""}`
+                    : "Price N/A"}
                 </p>
-                <p className="text-gray-500 text-sm mt-1">
-                  {p.status === "ACTIVE" ? "🟢 Active" : "⚪ Draft"}
-                </p>
+
+                {/* Status Badge */}
+                <span
+                  style={{
+                    display: "inline-block",
+                    padding: "2px 8px", // px-2 py-1
+                    borderRadius: "2rem", // fully rounded
+                    fontSize: "12px", // text-xs
+                    fontWeight: 600, // font-semibold
+                    marginLeft:"8px",
+                    marginBottom:"8px",
+                    backgroundColor: p.status === "active"
+                      ? "#d1fae5" // green light
+                      : p.status === "archived"
+                        ? "#fef3c7" // yellow light
+                        : "#e5e7eb", // gray for draft
+                    color:
+                      p.status === "active"
+                        ? "#065f46" // dark green
+                        : p.status === "archived"
+                          ? "#92400e" // dark yellow/brown
+                          : "#374151", // dark gray
+                  }}
+                >
+              {p.status === "active"
+                ? "Active"
+                : p.status === "archived"
+                  ? "Archived"
+                  : "Draft"}
+             </span>
               </div>
             ))}
           </div>
