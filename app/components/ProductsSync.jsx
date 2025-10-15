@@ -67,7 +67,26 @@ export default function ProductSync() {
         {fetcher.state === "submitting" ? "Syncing..." : "Sync to Production"}
       </button>
 
-      {message && <p  style={{ marginTop: "12px", color: "#16a34a", fontWeight: 500 }}>{message}</p>}
+      {/* ✅ Sync Log Panel */}
+      {message && (
+        <div
+          style={{
+            marginTop: "1.5rem",
+            backgroundColor: "#f0fdf4",
+            border: "1px solid #86efac",
+            borderRadius: "0.5rem",
+            padding: "1rem",
+            maxWidth: "400px",
+            fontSize: "14px",
+          }}
+        >
+          <p style={{ color: "#15803d", fontWeight: "600" }}>{message}</p>
+          <hr style={{ margin: "0.5rem 0" }} />
+          <p><strong>🕒 Synced At:</strong> {new Date().toLocaleString()}</p>
+          <p><strong>📦 Total Products:</strong> {products.length}</p>
+          <p><strong>✅ Status:</strong> Success</p>
+        </div>
+      )}
 
       <div className="mt-6">
         {loading ? (
