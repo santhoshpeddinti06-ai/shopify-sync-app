@@ -7,17 +7,17 @@ export default function ThemeSync() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
-  // Fetch staging themes from backend
+  // Load staging themes
   useEffect(() => {
     async function fetchStagingThemes() {
       try {
         const res = await fetch("/api/sync/stage-themes");
-        if (!res.ok) throw new Error(`Failed to fetch themes: ${res.status}`);
         const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to fetch themes");
         setStagingThemes(data.themes || []);
       } catch (err) {
         console.error(err);
-        setMessage("Failed to load staging themes");
+        setMessage("❌ Failed to load staging themes");
       }
     }
     fetchStagingThemes();
@@ -25,8 +25,7 @@ export default function ThemeSync() {
 
   // Backup settings from staging
   const handleBackup = async () => {
-    if (!selectedStagingTheme) return setMessage("Select a staging theme first");
-
+    if (!selectedStagingTheme) return setMessage("⚠️ Select a staging theme first");
     setLoading(true);
     setMessage("");
 
@@ -36,19 +35,18 @@ export default function ThemeSync() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "backup",
-          themeId: selectedStagingTheme, // send selected theme ID
+          themeId: selectedStagingTheme,
         }),
       });
 
       const data = await res.json();
-
       if (!res.ok) throw new Error(data.error || "Backup failed");
 
       if (data.value) setBackupData(JSON.parse(data.value));
-      setMessage(data.message || "Backup completed ✅");
+      setMessage("✅ Backup completed successfully");
     } catch (err) {
       console.error(err);
-      setMessage(err.message);
+      setMessage(`❌ ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -56,17 +54,19 @@ export default function ThemeSync() {
 
   // Push backup to production
   const handlePush = async () => {
-    if (!backupData) return setMessage("Please create a backup first");
-    if (!window.confirm("Push backup to production theme?")) return;
+    if (!backupData) return setMessage("⚠️ Please backup first");
+    if (!window.confirm("Push these settings to production?")) return;
 
     setLoading(true);
     setMessage("");
 
     try {
-      const payload = {
-        themeId: parseInt(import.meta.env.VITE_PRODUCT_THEME_ID),
-        settings: backupData,
-      };
+      // Ensure numeric theme ID for Shopify
+      const prodThemeId = parseInt(import.meta.env.VITE_PRODUCT_THEME_ID, 10);
+      if (!prodThemeId) return setMessage("❌ Production theme ID is missing");
+
+      const payload = { themeId: prodThemeId, settings: backupData };
+      console.log("Push Payload:", payload);
 
       const res = await fetch("/api/sync/push-theme-settings", {
         method: "POST",
@@ -75,15 +75,16 @@ export default function ThemeSync() {
       });
 
       const data = await res.json();
+      console.log("Push Response:", data);
 
       if (res.ok && data.success) {
-        setMessage("Push completed successfully ✅");
+        setMessage("✅ Pushed to production successfully");
       } else {
-        setMessage(`Push failed: ${data.errors || "Unknown error"}`);
+        setMessage(`❌ Push failed: ${data.error || "Unknown error"}`);
       }
     } catch (err) {
       console.error(err);
-      setMessage("Network error ❌");
+      setMessage("❌ Network or server error");
     } finally {
       setLoading(false);
     }

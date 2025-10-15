@@ -1,95 +1,79 @@
-// app/components/ProductSync.jsx
+// app/components/ProductsSync.jsx
+import { useFetcher } from "@remix-run/react";
 import { useEffect, useState } from "react";
 
 export default function ProductSync() {
+  const fetcher = useFetcher();
   const [products, setProducts] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
 
-  // Load products from staging
   useEffect(() => {
-    async function fetchProducts() {
-      setLoading(true);
+    const fetchProducts = async () => {
       try {
         const res = await fetch("/api/sync/products");
         const data = await res.json();
-        if (res.ok && data.success) {
-          setProducts(data.products);
-          setMessage(`✅ Loaded ${data.products.length} products from staging`);
-        } else {
-          setMessage(`❌ ${data.error || "Failed to load products"}`);
-        }
+        if (data.products) setProducts(data.products);
       } catch (err) {
-        setMessage("❌ Network error while loading products");
         console.error(err);
+        setMessage("Failed to load products.");
       } finally {
         setLoading(false);
       }
-    }
-
+    };
     fetchProducts();
   }, []);
 
-  const handleSync = async () => {
-    if (!window.confirm("Sync these products to production?")) return;
-    setLoading(true);
-    setMessage("Syncing products to production...");
-
-    try {
-      const res = await fetch("/api/sync/products", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "sync" }),
-      });
-
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setMessage(`✅ ${data.syncedCount} products synced successfully`);
-      } else {
-        setMessage(`❌ Sync failed: ${data.error || data.message}`);
-      }
-    } catch (err) {
-      console.error("Sync error:", err);
-      setMessage("❌ Network or server error");
-    } finally {
-      setLoading(false);
-    }
+  const handleSync = () => {
+    setMessage("");
+    fetcher.submit(
+      { action: "sync" },
+      { method: "post", action: "/api/sync/products" }
+    );
   };
 
-  return (
-    <div style={{ padding: 20 }}>
-      <h2>🛍️ Product Sync</h2>
+  useEffect(() => {
+    if (fetcher.data?.success) {
+      setMessage(`${fetcher.data.syncedCount} products synced successfully!`);
+    } else if (fetcher.data?.error) {
+      setMessage(`Error: ${fetcher.data.error}`);
+    }
+  }, [fetcher.data]);
 
-      <button onClick={handleSync} disabled={loading}>
-        {loading ? "Syncing..." : "Sync to Production"}
+  return (
+    <div className="p-6">
+      <h1 className="text-2xl font-semibold mb-4">🛍️ Product Sync</h1>
+
+      <button
+        onClick={handleSync}
+        disabled={fetcher.state === "submitting"}
+        className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50"
+      >
+        {fetcher.state === "submitting" ? "Syncing..." : "Sync to Production"}
       </button>
 
-      {message && <p style={{ marginTop: 10 }}>{message}</p>}
+      {message && <p className="mt-3 text-green-600">{message}</p>}
 
-      <div style={{ marginTop: 20 }}>
-        {products.length > 0 ? (
-          <table border="1" cellPadding="6" style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-            <tr>
-              <th>Title</th>
-              <th>Status</th>
-              <th>Price</th>
-              <th>Updated At</th>
-            </tr>
-            </thead>
-            <tbody>
-            {products.map((p) => (
-              <tr key={p.id}>
-                <td>{p.title}</td>
-                <td>{p.status}</td>
-                <td>{p.variants?.edges?.[0]?.node?.price || "—"}</td>
-                <td>{new Date(p.updatedAt).toLocaleDateString()}</td>
-              </tr>
-            ))}
-            </tbody>
-          </table>
+      <div className="mt-6">
+        {loading ? (
+          <p>Loading products...</p>
+        ) : products.length === 0 ? (
+          <p>No products found in staging store.</p>
         ) : (
-          <p>No products found</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {products.map((p) => (
+              <div key={p.id} className="border rounded-lg p-4 shadow-sm bg-white">
+                <h2 className="font-semibold text-lg">{p.title}</h2>
+                <p className="text-gray-600">
+                  Price: {p.variants?.[0]?.price ?? "N/A"}{" "}
+                  {p.variants?.[0]?.currencyCode ?? ""}
+                </p>
+                <p className="text-gray-500 text-sm mt-1">
+                  {p.status === "ACTIVE" ? "🟢 Active" : "⚪ Draft"}
+                </p>
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </div>
