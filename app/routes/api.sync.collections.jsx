@@ -3,10 +3,8 @@ import { json } from "@remix-run/node";
 import {
   fetchManualCollectionsFromStore,
   fetchSmartCollectionsFromStore,
-  pushManualCollectionToStore,
-  pushSmartCollectionToStore,
-  fetchAllCollectionsFromStore,
-} from "../utils/shopify-collections.server.js";
+  pushCollectionToStore,
+} from "../utils/shopify-collections.server.js"; // server-only import, safe in loader/action
 
 export const loader = async () => {
   return json({ message: "Use POST to sync collections" });
@@ -21,7 +19,7 @@ export const action = async ({ request }) => {
       return json({ error: "Invalid action" }, { status: 400 });
     }
 
-    // NOTE: We call specific fetchers so we can classify manual vs smart separately.
+    // ✅ Fetch manual and smart collections from staging
     const stagingManual = await fetchManualCollectionsFromStore(
       process.env.STAGE_SHOP,
       process.env.STAGE_ACCESS_TOKEN
@@ -31,33 +29,33 @@ export const action = async ({ request }) => {
       process.env.STAGE_ACCESS_TOKEN
     );
 
-    // Fetch production manual + smart so we avoid duplicates across both types
-    const prodManual = await fetchManualCollectionsFromStore(
+    const stagingCollections = [...stagingManual, ...stagingSmart];
+
+    // ✅ Fetch manual and smart collections from production
+    const productionManual = await fetchManualCollectionsFromStore(
       process.env.PROD_SHOP,
       process.env.PROD_ACCESS_TOKEN
     );
-    const prodSmart = await fetchSmartCollectionsFromStore(
+    const productionSmart = await fetchSmartCollectionsFromStore(
       process.env.PROD_SHOP,
       process.env.PROD_ACCESS_TOKEN
     );
 
-    // Build a set of handles/titles already in production (case-insensitive)
+    const productionCollections = [...productionManual, ...productionSmart];
+
+    // Build a set of existing handles/titles (case-insensitive)
     const existingHandles = new Set(
-      [...(prodManual || []), ...(prodSmart || [])].map((c) =>
-        (c.handle || c.title || "").trim().toLowerCase()
+      (productionCollections || []).map(
+        (c) => (c.handle || c.title || "").trim().toLowerCase()
       )
     );
 
-    // Filter staging manual & smart to only items NOT present in production
-    const newManual = (stagingManual || []).filter(
-      (c) => !existingHandles.has((c.handle || c.title || "").trim().toLowerCase())
-    );
-    const newSmart = (stagingSmart || []).filter(
+    // Filter only new collections
+    const newCollections = (stagingCollections || []).filter(
       (c) => !existingHandles.has((c.handle || c.title || "").trim().toLowerCase())
     );
 
-    // If nothing to sync, return early with message
-    if (!newManual.length && !newSmart.length) {
+    if (!newCollections.length) {
       return json({
         success: true,
         syncedCount: 0,
@@ -65,51 +63,31 @@ export const action = async ({ request }) => {
       });
     }
 
-    // Push manual + smart collections separately and collect names for response
-    const syncedManual = [];
-    const syncedSmart = [];
     let syncedCount = 0;
+    const syncedTitles = [];
 
-    for (const c of newManual) {
+    for (const collection of newCollections) {
       try {
-        await pushManualCollectionToStore(
-          process.env.PROD_SHOP,
-          process.env.PROD_ACCESS_TOKEN,
-          c
-        );
-        syncedManual.push(c.title);
-        syncedCount++;
+        // Only custom collections can be pushed via REST API
+        if (collection.id && collection.title && collection.handle) {
+          await pushCollectionToStore(
+            process.env.PROD_SHOP,
+            process.env.PROD_ACCESS_TOKEN,
+            collection
+          );
+          syncedCount++;
+          syncedTitles.push(collection.title);
+        }
       } catch (err) {
-        console.error(`Failed to push manual collection "${c.title}":`, err);
+        console.error(`❌ Failed to push collection "${collection.title}":`, err);
       }
     }
-
-    for (const c of newSmart) {
-      try {
-        await pushSmartCollectionToStore(
-          process.env.PROD_SHOP,
-          process.env.PROD_ACCESS_TOKEN,
-          c
-        );
-        syncedSmart.push(c.title);
-        syncedCount++;
-      } catch (err) {
-        console.error(`Failed to push smart collection "${c.title}":`, err);
-      }
-    }
-
-    const message = syncedCount
-      ? `✅ ${syncedCount} new collection(s) synced successfully!`
-      : "✅ No new collections were synced.";
-
-    console.log(message, { syncedManual, syncedSmart });
 
     return json({
       success: true,
       syncedCount,
-      syncedManual,
-      syncedSmart,
-      message,
+      syncedCollections: syncedTitles,
+      message: `✅ ${syncedCount} new collection(s) synced successfully!`,
     });
   } catch (err) {
     console.error("❌ Collection sync error:", err);
