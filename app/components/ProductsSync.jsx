@@ -64,7 +64,7 @@ export default function ProductSync() {
           marginBottom: "12px",
         }}
       >
-        {fetcher.state === "submitting" ? "Syncing..." : "Sync to Production"}
+        {fetcher.state === "submitting" ? "Syncing..." : "Sync to Products"}
       </button>
 
       {/* ✅ Sync Log Panel */}
