@@ -1,48 +1,71 @@
 // app/utils/shopify-collections.server.js
-import { shopifyApi } from "@shopify/shopify-api";
 
-// ✅ Fetch all custom collections (manual + smart) from a given store
-export async function fetchCollectionsFromStore(shop, token) {
+/**
+ * Helper to fetch collections from a Shopify store via REST API.
+ * @param {string} shop - store domain
+ * @param {string} token - store access token
+ * @param {"custom"|"smart"} type - collection type
+ * @returns {Array} collections
+ */
+async function fetchCollections(shop, token, type = "custom") {
+  const url =
+    type === "custom"
+      ? `https://${shop}/admin/api/2025-10/custom_collections.json`
+      : `https://${shop}/admin/api/2025-10/smart_collections.json`;
+
   try {
-    const client = new shopifyApi.RestClient(shop, token);
+    const res = await fetch(url, {
+      headers: {
+        "X-Shopify-Access-Token": token,
+        "Content-Type": "application/json",
+      },
+    });
 
-    // Fetch manual collections
-    const manualRes = await client.get({ path: "custom_collections" });
-    const manualCollections = manualRes.body.custom_collections || [];
-
-    // Fetch smart collections
-    const smartRes = await client.get({ path: "smart_collections" });
-    const smartCollections = smartRes.body.smart_collections || [];
-
-    // Merge both manual and smart collections
-    return [...manualCollections, ...smartCollections];
+    const data = await res.json();
+    return type === "custom"
+      ? data.custom_collections || []
+      : data.smart_collections || [];
   } catch (err) {
-    console.error(`❌ Error fetching collections from ${shop}:`, err);
+    console.error(`❌ Error fetching ${type} collections from ${shop}:`, err);
     return [];
   }
 }
 
-// ✅ Push a collection to a store (manual or smart)
+/**
+ * Push a manual (custom) collection to a store
+ */
 export async function pushCollectionToStore(shop, token, collection) {
   try {
-    const client = new shopifyApi.RestClient(shop, token);
+    const url = `https://${shop}/admin/api/2025-10/custom_collections.json`;
+    const body = {
+      custom_collection: {
+        title: collection.title,
+        handle: collection.handle,
+        body_html: collection.body_html || "",
+        image: collection.image || null,
+      },
+    };
 
-    const isSmart = collection.rules || collection.ruleset; // smart collection if rules exist
-    const data = isSmart
-      ? { smart_collection: collection }
-      : { custom_collection: collection };
-
-    const path = isSmart ? "smart_collections" : "custom_collections";
-
-    const res = await client.post({
-      path,
-      data,
-      type: "application/json",
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "X-Shopify-Access-Token": token,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
     });
 
-    return isSmart ? res.body.smart_collection : res.body.custom_collection;
+    const data = await res.json();
+    return data.custom_collection;
   } catch (err) {
     console.error(`❌ Error pushing collection "${collection.title}" to ${shop}:`, err);
     throw err;
   }
 }
+
+// ✅ Export helpers
+export const fetchManualCollectionsFromStore = (shop, token) =>
+  fetchCollections(shop, token, "custom");
+
+export const fetchSmartCollectionsFromStore = (shop, token) =>
+  fetchCollections(shop, token, "smart");

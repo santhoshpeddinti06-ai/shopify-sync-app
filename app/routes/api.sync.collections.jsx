@@ -1,7 +1,7 @@
 // app/routes/api.sync.collections.jsx
 import { json } from "@remix-run/node";
 import {
-  fetchCollectionsFromStore,
+  fetchManualCollectionsFromStore,
   pushCollectionToStore,
 } from "../utils/shopify-collections.server.js";
 
@@ -18,24 +18,25 @@ export const action = async ({ request }) => {
       return json({ error: "Invalid action" }, { status: 400 });
     }
 
-    // ✅ Fetch collections from staging & production
-    const stagingCollections = await fetchCollectionsFromStore(
+    // Fetch manual collections from staging and production
+    const stagingCollections = await fetchManualCollectionsFromStore(
       process.env.STAGE_SHOP,
       process.env.STAGE_ACCESS_TOKEN
     );
-    const productionCollections = await fetchCollectionsFromStore(
+
+    const productionCollections = await fetchManualCollectionsFromStore(
       process.env.PROD_SHOP,
       process.env.PROD_ACCESS_TOKEN
     );
 
-    // ✅ Build a set of existing collection handles/titles (case-insensitive)
+    // Build a set of existing collection handles/titles (case-insensitive)
     const existingHandles = new Set(
-      (productionCollections || []).map((c) =>
-        (c.handle || c.title || "").trim().toLowerCase()
+      (productionCollections || []).map(
+        (c) => (c.handle || c.title || "").trim().toLowerCase()
       )
     );
 
-    // ✅ Filter only new collections (not already in production)
+    // Filter new collections only
     const newCollections = (stagingCollections || []).filter(
       (c) => !existingHandles.has((c.handle || c.title || "").trim().toLowerCase())
     );
