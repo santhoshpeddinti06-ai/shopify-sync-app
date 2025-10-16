@@ -2,7 +2,10 @@
 import { json } from "@remix-run/node";
 import {
   fetchManualCollectionsFromStore,
-  pushCollectionToStore,
+  fetchSmartCollectionsFromStore,
+  pushManualCollectionToStore,
+  pushSmartCollectionToStore,
+  fetchAllCollectionsFromStore,
 } from "../utils/shopify-collections.server.js";
 
 export const loader = async () => {
@@ -18,30 +21,43 @@ export const action = async ({ request }) => {
       return json({ error: "Invalid action" }, { status: 400 });
     }
 
-    // Fetch manual collections from staging and production
-    const stagingCollections = await fetchManualCollectionsFromStore(
+    // NOTE: We call specific fetchers so we can classify manual vs smart separately.
+    const stagingManual = await fetchManualCollectionsFromStore(
+      process.env.STAGE_SHOP,
+      process.env.STAGE_ACCESS_TOKEN
+    );
+    const stagingSmart = await fetchSmartCollectionsFromStore(
       process.env.STAGE_SHOP,
       process.env.STAGE_ACCESS_TOKEN
     );
 
-    const productionCollections = await fetchManualCollectionsFromStore(
+    // Fetch production manual + smart so we avoid duplicates across both types
+    const prodManual = await fetchManualCollectionsFromStore(
+      process.env.PROD_SHOP,
+      process.env.PROD_ACCESS_TOKEN
+    );
+    const prodSmart = await fetchSmartCollectionsFromStore(
       process.env.PROD_SHOP,
       process.env.PROD_ACCESS_TOKEN
     );
 
-    // Build a set of existing collection handles/titles (case-insensitive)
+    // Build a set of handles/titles already in production (case-insensitive)
     const existingHandles = new Set(
-      (productionCollections || []).map(
-        (c) => (c.handle || c.title || "").trim().toLowerCase()
+      [...(prodManual || []), ...(prodSmart || [])].map((c) =>
+        (c.handle || c.title || "").trim().toLowerCase()
       )
     );
 
-    // Filter new collections only
-    const newCollections = (stagingCollections || []).filter(
+    // Filter staging manual & smart to only items NOT present in production
+    const newManual = (stagingManual || []).filter(
+      (c) => !existingHandles.has((c.handle || c.title || "").trim().toLowerCase())
+    );
+    const newSmart = (stagingSmart || []).filter(
       (c) => !existingHandles.has((c.handle || c.title || "").trim().toLowerCase())
     );
 
-    if (!newCollections.length) {
+    // If nothing to sync, return early with message
+    if (!newManual.length && !newSmart.length) {
       return json({
         success: true,
         syncedCount: 0,
@@ -49,30 +65,51 @@ export const action = async ({ request }) => {
       });
     }
 
+    // Push manual + smart collections separately and collect names for response
+    const syncedManual = [];
+    const syncedSmart = [];
     let syncedCount = 0;
-    const syncedTitles = [];
 
-    for (const collection of newCollections) {
+    for (const c of newManual) {
       try {
-        await pushCollectionToStore(
+        await pushManualCollectionToStore(
           process.env.PROD_SHOP,
           process.env.PROD_ACCESS_TOKEN,
-          collection
+          c
         );
+        syncedManual.push(c.title);
         syncedCount++;
-        syncedTitles.push(collection.title);
       } catch (err) {
-        console.error(`❌ Failed to push collection "${collection.title}":`, err);
+        console.error(`Failed to push manual collection "${c.title}":`, err);
       }
     }
 
-    console.log(`✅ ${syncedCount} new collection(s) synced:`, syncedTitles);
+    for (const c of newSmart) {
+      try {
+        await pushSmartCollectionToStore(
+          process.env.PROD_SHOP,
+          process.env.PROD_ACCESS_TOKEN,
+          c
+        );
+        syncedSmart.push(c.title);
+        syncedCount++;
+      } catch (err) {
+        console.error(`Failed to push smart collection "${c.title}":`, err);
+      }
+    }
+
+    const message = syncedCount
+      ? `✅ ${syncedCount} new collection(s) synced successfully!`
+      : "✅ No new collections were synced.";
+
+    console.log(message, { syncedManual, syncedSmart });
 
     return json({
       success: true,
       syncedCount,
-      syncedCollections: syncedTitles,
-      message: `✅ ${syncedCount} new collection(s) synced successfully!`,
+      syncedManual,
+      syncedSmart,
+      message,
     });
   } catch (err) {
     console.error("❌ Collection sync error:", err);
