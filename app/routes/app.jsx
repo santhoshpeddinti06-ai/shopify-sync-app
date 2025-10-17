@@ -28,6 +28,7 @@ export default function App() {
               >Theme Sync</Link>
         <Link to="/app/products">Products Sync</Link>
         <Link to="/app/collections">Collections Sync</Link>
+        <Link to="/app/menus">Menu Sync</Link>
       </NavMenu>
       <Outlet />
     </AppProvider>
