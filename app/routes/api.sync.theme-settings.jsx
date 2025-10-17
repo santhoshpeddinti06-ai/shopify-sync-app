@@ -1,60 +1,59 @@
-// app/routes/api/sync/theme-settings.jsx
+// app/routes/api.sync.theme-settings.jsx
 import { json } from "@remix-run/node";
-import fetch from "node-fetch";
-import fs from "fs";
+import { fetchSettingsAsset, pushSettingsAsset } from "../utils/shopify-themes.server.js";
 
-// Load staging environment variables
-const STAGE_ACCESS_TOKEN = process.env.STAGE_ACCESS_TOKEN;
-const STAGE_SHOP = process.env.STAGE_SHOP;
-const STAGE_THEME_ID = process.env.VITE_STAGE_THEME_ID; // <- match your .env
+let localBackup = null; // stored in memory
 
 export const action = async ({ request }) => {
   try {
-    const body = await request.json();
-    const { action: act } = body;
+    const formData = await request.formData();
+    const actionType = formData.get("action");
+    const themeId = formData.get("themeId");
 
-    if (act !== "backup") {
-      return json({ error: "Invalid action" }, { status: 400 });
+    const PROD_SHOP = process.env.PROD_SHOP;
+    const PROD_TOKEN = process.env.PROD_ACCESS_TOKEN;
+    const STAGE_SHOP = process.env.STAGE_SHOP;
+    const STAGE_TOKEN = process.env.STAGE_ACCESS_TOKEN;
+    const STAGE_THEME_ID = process.env.VITE_STAGE_THEME_ID;
+
+    if (actionType === "backup") {
+      // Fetch settings from staging store
+      const settingsData = await fetchSettingsAsset(STAGE_SHOP, STAGE_TOKEN, STAGE_THEME_ID);
+
+      if (!settingsData) {
+        return json({ success: false, message: "No settings found in staging theme." }, { status: 404 });
+      }
+
+      localBackup = settingsData;
+      console.log("✅ Backup stored in memory from staging:", STAGE_THEME_ID);
+
+      return json({
+        success: true,
+        message: `✅ Backup successful for staging theme ${STAGE_THEME_ID}`,
+      });
     }
 
-    if (!STAGE_SHOP || !STAGE_ACCESS_TOKEN || !STAGE_THEME_ID) {
-      return json({ error: "Missing staging environment variables" }, { status: 500 });
+    if (actionType === "push") {
+      if (!localBackup) {
+        return json({ success: false, message: "No backup found. Please backup first." }, { status: 400 });
+      }
+
+      // Push to production store
+      const pushed = await pushSettingsAsset(PROD_SHOP, PROD_TOKEN, themeId, localBackup);
+
+      return json({
+        success: true,
+        message: `✅ Settings pushed successfully to production theme ${themeId}`,
+        pushed,
+      });
     }
 
-    // Fetch the settings_data.json from staging theme
-    const url = `https://${STAGE_SHOP}/admin/api/2025-10/themes/${STAGE_THEME_ID}/assets.json?asset[key]=config/settings_data.json`;
-
-    const response = await fetch(url, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Shopify-Access-Token": STAGE_ACCESS_TOKEN,
-      },
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.error("Shopify API error:", data);
-      return json({ error: "Stage backup failed", details: data }, { status: response.status });
-    }
-
-    if (!data.asset || !data.asset.value) {
-      console.error("No asset found:", data);
-      return json({ error: "Stage backup failed: No settings found" }, { status: 500 });
-    }
-
-    // Save backup locally
-    if (!fs.existsSync("./backups")) fs.mkdirSync("./backups");
-    fs.writeFileSync("./backups/settings_stage.json", data.asset.value);
-
-    // Return the raw JSON string to frontend
-    return json({
-      message: "Backup completed!",
-      value: data.asset.value, // raw JSON string for push
-    });
+    return json({ success: false, message: "Invalid action" }, { status: 400 });
   } catch (err) {
-    console.error("Stage backup failed:", err);
-    return json({ error: "Stage backup failed", details: err.message }, { status: 500 });
+    console.error("❌ Theme sync action error:", err);
+    return json(
+      { success: false, message: err.message || "Theme sync failed." },
+      { status: 500 }
+    );
   }
 };
