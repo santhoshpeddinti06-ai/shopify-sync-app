@@ -1,75 +1,127 @@
 // app/routes/api.sync.menus.jsx
 import { json } from "@remix-run/node";
 
-export const action = async ({ request }) => {
+export async function action() {
+  const stageShop = process.env.STAGE_SHOP;
+  const stageToken = process.env.STAGE_ACCESS_TOKEN;
+  const prodShop = process.env.PROD_SHOP;
+  const prodToken = process.env.PROD_ACCESS_TOKEN;
+
   try {
-    const formData = await request.formData();
-    const actionType = formData.get("action");
+    console.log("🔹 Fetching menus from staging store:", stageShop);
 
-    const PROD_SHOP = process.env.PROD_SHOP;
-    const PROD_TOKEN = process.env.PROD_ACCESS_TOKEN;
-    const STAGE_SHOP = process.env.STAGE_SHOP;
-    const STAGE_TOKEN = process.env.STAGE_ACCESS_TOKEN;
+    // ✅ STEP 1: Fetch menus from staging
+    const stageResponse = await fetch(`https://${stageShop}/admin/api/2025-10/graphql.json`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": stageToken,
+      },
+      body: JSON.stringify({
+        query: `
+          {
+            menus(first: 50) {
+              edges {
+                node {
+                  id
+                  title
+                  handle
+                  items {
+                    title
+                    url
+                  }
+                }
+              }
+            }
+          }
+        `,
+      }),
+    });
 
-    let backupMenus = [];
+    const stageData = await stageResponse.json();
+    const menus = stageData?.data?.menus?.edges || [];
 
-    if (actionType === "backup") {
-      // Fetch all menus from staging
-      const url = `https://${STAGE_SHOP}/admin/api/2025-10/menus.json`;
-      const res = await fetch(url, {
-        headers: {
-          "X-Shopify-Access-Token": STAGE_TOKEN,
-          "Content-Type": "application/json",
-        },
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const data = await res.json();
+    console.log(`✅ Found ${menus.length} menu(s) in staging.`);
 
-      backupMenus = data.menus || [];
-      global.menuBackup = backupMenus; // store in memory
-
-      return json({
-        success: true,
-        message: `✅ Backed up ${backupMenus.length} menus from staging.`,
-      });
+    if (menus.length === 0) {
+      return json({ success: false, message: "No menus found in staging store." });
     }
 
-    if (actionType === "push") {
-      if (!global.menuBackup || global.menuBackup.length === 0) {
-        return json({ success: false, message: "No menus backed up yet." });
+    // ✅ STEP 2: Push menus to production
+    for (const { node: menu } of menus) {
+      console.log(`➡️ Creating menu "${menu.title}" in production...`);
+
+      const createMenuRes = await fetch(`https://${prodShop}/admin/api/2025-10/graphql.json`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Shopify-Access-Token": prodToken,
+        },
+        body: JSON.stringify({
+          query: `
+            mutation menuCreate($title: String!, $handle: String!) {
+              menuCreate(title: $title, handle: $handle) {
+                menu { id title }
+                userErrors { field message }
+              }
+            }
+          `,
+          variables: { title: menu.title, handle: menu.handle },
+        }),
+      });
+
+      const createMenuData = await createMenuRes.json();
+      const newMenuId = createMenuData?.data?.menuCreate?.menu?.id;
+      const menuErrors = createMenuData?.data?.menuCreate?.userErrors || [];
+
+      if (!newMenuId || menuErrors.length > 0) {
+        console.error(`❌ Menu create failed for "${menu.title}"`, menuErrors);
+        continue;
       }
 
-      // Push each menu to production
-      let pushed = [];
-      for (const menu of global.menuBackup) {
-        const createUrl = `https://${PROD_SHOP}/admin/api/2025-10/menus.json`;
-        const res = await fetch(createUrl, {
+      console.log(`✅ Menu created: ${menu.title} (${newMenuId})`);
+
+      // ✅ STEP 3: Add menu items
+      for (const item of menu.items) {
+        console.log(`   ➕ Adding item "${item.title}" -> ${item.url}`);
+
+        const itemRes = await fetch(`https://${prodShop}/admin/api/2025-10/graphql.json`, {
           method: "POST",
           headers: {
-            "X-Shopify-Access-Token": PROD_TOKEN,
             "Content-Type": "application/json",
+            "X-Shopify-Access-Token": prodToken,
           },
-          body: JSON.stringify({ menu }),
+          body: JSON.stringify({
+            query: `
+              mutation menuItemCreate($menuId: ID!, $title: String!, $url: String!) {
+                menuItemCreate(menuId: $menuId, title: $title, url: $url) {
+                  menuItem { id }
+                  userErrors { field message }
+                }
+              }
+            `,
+            variables: {
+              menuId: newMenuId,
+              title: item.title,
+              url: item.url,
+            },
+          }),
         });
 
-        if (!res.ok) {
-          console.warn(`⚠️ Failed to push menu: ${menu.title}`);
-          continue;
+        const itemData = await itemRes.json();
+        const itemErrors = itemData?.data?.menuItemCreate?.userErrors || [];
+        if (itemErrors.length > 0) {
+          console.error(`❌ Error adding item "${item.title}"`, itemErrors);
+        } else {
+          console.log(`✅ Added item "${item.title}"`);
         }
-
-        const result = await res.json();
-        pushed.push(result.menu);
       }
-
-      return json({
-        success: true,
-        message: `✅ Pushed ${pushed.length} menus to production.`,
-      });
     }
 
-    return json({ success: false, message: "Invalid action." });
+    console.log("🎉 Menu sync completed successfully!");
+    return json({ success: true, message: "✅ Menus synced successfully!" });
   } catch (err) {
-    console.error("❌ Menu sync failed:", err);
-    return json({ success: false, message: err.message || "Menu sync failed." }, { status: 500 });
+    console.error("🚨 Menu sync error:", err);
+    return json({ success: false, message: err.message });
   }
-};
+}

@@ -1,14 +1,33 @@
-// app/routes/app.menus.jsx
-import MenuSync from "../components/MenuSync.jsx";
+import { useFetcher } from "@remix-run/react";
 
-export default function MenuSyncPage() {
+export default function MenuSync() {
+  const fetcher = useFetcher();
+
+  const handleSyncMenus = () => {
+    fetcher.submit({}, { method: "post", action: "/api/sync/menus" });
+  };
+
   return (
-    <div>
-      <h1 style={{ fontSize: 22, fontWeight: 700 ,marginLeft:30}}> Menu Sync</h1>
-      <p style={{ marginBottom: 20, color: "#555",marginLeft:30,marginTop:30 }}>
-        Backup and push navigation menus between staging and production stores.
+    <div className="p-4 border rounded-xl shadow-md bg-white w-full max-w-lg">
+      <h2 className="text-xl font-semibold mb-2">Menu Sync</h2>
+      <p className="text-gray-600 mb-4">
+        Backup and push menus from staging to production store.
       </p>
-      <MenuSync />
+
+      <button
+        onClick={handleSyncMenus}
+        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
+      >
+        {fetcher.state === "submitting" ? "Syncing..." : "Backup & Push Menus"}
+      </button>
+
+      {fetcher.data && (
+        <div className="mt-3">
+          <p className={fetcher.data.success ? "text-green-600" : "text-red-600"}>
+            {fetcher.data.message}
+          </p>
+        </div>
+      )}
     </div>
   );
 }
