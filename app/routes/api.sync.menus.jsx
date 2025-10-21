@@ -1,127 +1,121 @@
-// app/routes/api.sync.menus.jsx
 import { json } from "@remix-run/node";
 
-export async function action() {
-  const stageShop = process.env.STAGE_SHOP;
-  const stageToken = process.env.STAGE_ACCESS_TOKEN;
-  const prodShop = process.env.PROD_SHOP;
-  const prodToken = process.env.PROD_ACCESS_TOKEN;
-
-  try {
-    console.log("🔹 Fetching menus from staging store:", stageShop);
-
-    // ✅ STEP 1: Fetch menus from staging
-    const stageResponse = await fetch(`https://${stageShop}/admin/api/2025-10/graphql.json`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Shopify-Access-Token": stageToken,
-      },
-      body: JSON.stringify({
-        query: `
-          {
-            menus(first: 50) {
-              edges {
-                node {
-                  id
-                  title
-                  handle
-                  items {
-                    title
-                    url
-                  }
-                }
-              }
+// ✅ Helper: Fetch menus via GraphQL
+async function fetchMenusGraphQL(shop, token) {
+  const url = `https://${shop}/admin/api/2025-01/graphql.json`;
+  const query = `
+    {
+      menus(first: 50) {
+        edges {
+          node {
+            id
+            handle
+            title
+            items {
+              title
+              type
+              url
             }
           }
-        `,
-      }),
-    });
-
-    const stageData = await stageResponse.json();
-    const menus = stageData?.data?.menus?.edges || [];
-
-    console.log(`✅ Found ${menus.length} menu(s) in staging.`);
-
-    if (menus.length === 0) {
-      return json({ success: false, message: "No menus found in staging store." });
-    }
-
-    // ✅ STEP 2: Push menus to production
-    for (const { node: menu } of menus) {
-      console.log(`➡️ Creating menu "${menu.title}" in production...`);
-
-      const createMenuRes = await fetch(`https://${prodShop}/admin/api/2025-10/graphql.json`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Shopify-Access-Token": prodToken,
-        },
-        body: JSON.stringify({
-          query: `
-            mutation menuCreate($title: String!, $handle: String!) {
-              menuCreate(title: $title, handle: $handle) {
-                menu { id title }
-                userErrors { field message }
-              }
-            }
-          `,
-          variables: { title: menu.title, handle: menu.handle },
-        }),
-      });
-
-      const createMenuData = await createMenuRes.json();
-      const newMenuId = createMenuData?.data?.menuCreate?.menu?.id;
-      const menuErrors = createMenuData?.data?.menuCreate?.userErrors || [];
-
-      if (!newMenuId || menuErrors.length > 0) {
-        console.error(`❌ Menu create failed for "${menu.title}"`, menuErrors);
-        continue;
+        }
       }
+    }
+  `;
 
-      console.log(`✅ Menu created: ${menu.title} (${newMenuId})`);
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "X-Shopify-Access-Token": token,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ query }),
+  });
 
-      // ✅ STEP 3: Add menu items
-      for (const item of menu.items) {
-        console.log(`   ➕ Adding item "${item.title}" -> ${item.url}`);
+  const data = await response.json();
 
-        const itemRes = await fetch(`https://${prodShop}/admin/api/2025-10/graphql.json`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Shopify-Access-Token": prodToken,
-          },
-          body: JSON.stringify({
-            query: `
-              mutation menuItemCreate($menuId: ID!, $title: String!, $url: String!) {
-                menuItemCreate(menuId: $menuId, title: $title, url: $url) {
-                  menuItem { id }
-                  userErrors { field message }
-                }
-              }
-            `,
-            variables: {
-              menuId: newMenuId,
-              title: item.title,
-              url: item.url,
-            },
-          }),
+  if (data.errors) {
+    throw new Error(
+      `Failed to fetch menus from ${shop}: ${JSON.stringify(data.errors)}`
+    );
+  }
+
+  const menus = data.data?.menus?.edges?.map((e) => e.node) || [];
+  return menus;
+}
+
+// ✅ Main Remix action
+export const action = async () => {
+  const STAGE_SHOP = process.env.STAGE_SHOP;
+  const STAGE_ACCESS_TOKEN = process.env.STAGE_ACCESS_TOKEN;
+  const PROD_SHOP = process.env.PROD_SHOP;
+  const PROD_ACCESS_TOKEN = process.env.PROD_ACCESS_TOKEN;
+
+  if (!STAGE_SHOP || !STAGE_ACCESS_TOKEN || !PROD_SHOP || !PROD_ACCESS_TOKEN) {
+    return json({
+      success: false,
+      message:
+        "❌ Missing required .env values (STAGE_SHOP, STAGE_ACCESS_TOKEN, PROD_SHOP, PROD_ACCESS_TOKEN)",
+    });
+  }
+
+  try {
+    // Fetch menus from both stores
+    const [stageMenus, prodMenus] = await Promise.all([
+      fetchMenusGraphQL(STAGE_SHOP, STAGE_ACCESS_TOKEN),
+      fetchMenusGraphQL(PROD_SHOP, PROD_ACCESS_TOKEN),
+    ]);
+
+    const results = [];
+    const differences = [];
+
+    for (const sMenu of stageMenus) {
+      const match = prodMenus.find((m) => m.handle === sMenu.handle);
+
+      if (!match) {
+        results.push({
+          title: sMenu.title,
+          handle: sMenu.handle,
+          status: "❌ Missing in Production",
         });
+        differences.push(sMenu);
+      } else {
+        const sTitles = sMenu.items.map((i) => i.title);
+        const pTitles = match.items.map((i) => i.title);
+        const missing = sTitles.filter((t) => !pTitles.includes(t));
+        const extra = pTitles.filter((t) => !sTitles.includes(t));
 
-        const itemData = await itemRes.json();
-        const itemErrors = itemData?.data?.menuItemCreate?.userErrors || [];
-        if (itemErrors.length > 0) {
-          console.error(`❌ Error adding item "${item.title}"`, itemErrors);
+        if (missing.length || extra.length) {
+          results.push({
+            title: sMenu.title,
+            handle: sMenu.handle,
+            status: "⚠️ Items differ",
+            missing,
+            extra,
+          });
+          differences.push(sMenu);
         } else {
-          console.log(`✅ Added item "${item.title}"`);
+          results.push({
+            title: sMenu.title,
+            handle: sMenu.handle,
+            status: "✅ Match",
+          });
         }
       }
     }
 
-    console.log("🎉 Menu sync completed successfully!");
-    return json({ success: true, message: "✅ Menus synced successfully!" });
-  } catch (err) {
-    console.error("🚨 Menu sync error:", err);
-    return json({ success: false, message: err.message });
+    // (Optional) — You can later implement pushing changes via GraphQL mutations
+    // For now, just returning the comparison result.
+
+    return json({
+      success: true,
+      message:
+        differences.length > 0
+          ? "✅ Menu comparison done — differences found."
+          : "✅ Menus are already synced.",
+      results,
+    });
+  } catch (error) {
+    console.error("❌ Menu sync error:", error);
+    return json({ success: false, message: error.message });
   }
-}
+};
