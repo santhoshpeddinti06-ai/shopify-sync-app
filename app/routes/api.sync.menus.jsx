@@ -1,8 +1,8 @@
 import { json } from "@remix-run/node";
 
-// Helper for making Shopify GraphQL requests
+// Shopify GraphQL request helper
 async function shopifyGraphQL(shop, token, query, variables = {}) {
-  const response = await fetch(`https://${shop}/admin/api/2025-01/graphql.json`, {
+  const res = await fetch(`https://${shop}/admin/api/2025-10/graphql.json`, {
     method: "POST",
     headers: {
       "X-Shopify-Access-Token": token,
@@ -10,13 +10,12 @@ async function shopifyGraphQL(shop, token, query, variables = {}) {
     },
     body: JSON.stringify({ query, variables }),
   });
-
-  const data = await response.json();
+  const data = await res.json();
   if (data.errors) throw new Error(JSON.stringify(data.errors, null, 2));
   return data.data;
 }
 
-// Fetch all menus
+// Fetch menus and items
 async function fetchMenus(shop, token) {
   const query = `
     {
@@ -37,9 +36,8 @@ async function fetchMenus(shop, token) {
       }
     }
   `;
-
   const data = await shopifyGraphQL(shop, token, query);
-  return data.menus.edges.map((e) => e.node);
+  return data.menus.edges.map(e => e.node);
 }
 
 export async function action() {
@@ -48,128 +46,89 @@ export async function action() {
   if (!STAGE_SHOP || !STAGE_ACCESS_TOKEN || !PROD_SHOP || !PROD_ACCESS_TOKEN) {
     return json({
       success: false,
-      message: "❌ Missing required .env values (STAGE_SHOP, PROD_SHOP, etc.)",
+      message: "❌ Missing .env values (STAGE_SHOP, PROD_SHOP, etc.)",
     });
   }
 
   try {
-    // ✅ Fetch menus from both stores
-    const [stageMenus, prodMenus] = await Promise.all([
+    const [stagingMenus, prodMenus] = await Promise.all([
       fetchMenus(STAGE_SHOP, STAGE_ACCESS_TOKEN),
       fetchMenus(PROD_SHOP, PROD_ACCESS_TOKEN),
     ]);
 
     const results = [];
 
-    for (const sMenu of stageMenus) {
-      const match = prodMenus.find((m) => m.handle === sMenu.handle);
+    for (const sMenu of stagingMenus) {
+      const match = prodMenus.find(m => m.handle === sMenu.handle);
 
-      // --------------------------
-      // 🆕 CASE 1: Missing menu → CREATE
-      // --------------------------
+      // ----------------- CREATE menu if missing -----------------
       if (!match) {
         const createMutation = `
           mutation menuCreate($title: String!, $handle: String!, $items: [MenuItemCreateInput!]!) {
             menuCreate(title: $title, handle: $handle, items: $items) {
-              menu { id title handle }
+              menu { id title handle items { id title url } }
               userErrors { field message }
             }
           }
         `;
-
         const variables = {
           title: sMenu.title,
           handle: sMenu.handle,
-          items: sMenu.items.map((i) => ({
-            title: i.title,
-            type: i.type,
-            url: i.url,
-          })),
+          items: sMenu.items.map(i => ({ title: i.title, type: i.type, url: i.url })),
         };
 
         const result = await shopifyGraphQL(PROD_SHOP, PROD_ACCESS_TOKEN, createMutation, variables);
         const errors = result.menuCreate.userErrors;
 
-        if (errors?.length) {
-          results.push({
-            title: sMenu.title,
-            handle: sMenu.handle,
-            status: `⚠️ Failed to create: ${errors[0].message}`,
-          });
-        } else {
-          results.push({
-            title: sMenu.title,
-            handle: sMenu.handle,
-            status: "✅ Created in Production",
-          });
-        }
+        results.push({
+          title: sMenu.title,
+          handle: sMenu.handle,
+          status: errors.length ? `⚠️ Failed to create: ${errors[0].message}` : "✅ Created with items",
+        });
         continue;
       }
 
-      // --------------------------
-      // ✏️ CASE 2: Existing menu → UPDATE
-      // --------------------------
-      const sTitles = sMenu.items.map((i) => i.title);
-      const pTitles = match.items.map((i) => i.title);
-      const missing = sTitles.filter((t) => !pTitles.includes(t));
+      // ----------------- UPDATE existing menu items -----------------
+      const missingItems = sMenu.items.filter(
+        i => !match.items.some(p => p.title === i.title)
+      );
 
-      if (missing.length > 0) {
+      if (missingItems.length > 0) {
         const updateMutation = `
           mutation menuUpdate($id: ID!, $title: String!, $items: [MenuItemUpdateInput!]!) {
             menuUpdate(id: $id, title: $title, items: $items) {
-              menu { id title handle }
+              menu { id title handle items { id title url } }
               userErrors { field message }
             }
           }
         `;
-
         const variables = {
           id: match.id,
           title: sMenu.title,
           items: [
-            ...match.items.map((i) => ({
-              title: i.title,
-              type: i.type,
-              url: i.url,
-            })),
-            ...sMenu.items
-              .filter((i) => missing.includes(i.title))
-              .map((i) => ({
-                title: i.title,
-                type: i.type,
-                url: i.url,
-              })),
+            ...match.items.map(i => ({ id: i.id, title: i.title, url: i.url, type: i.type })),
+            ...missingItems.map(i => ({ title: i.title, url: i.url, type: i.type })),
           ],
         };
 
         const result = await shopifyGraphQL(PROD_SHOP, PROD_ACCESS_TOKEN, updateMutation, variables);
         const errors = result.menuUpdate.userErrors;
 
-        if (errors?.length) {
-          results.push({
-            title: sMenu.title,
-            handle: sMenu.handle,
-            status: `⚠️ Failed to update: ${errors[0].message}`,
-          });
-        } else {
-          results.push({
-            title: sMenu.title,
-            handle: sMenu.handle,
-            status: `✅ Updated missing items (${missing.join(", ")})`,
-          });
-        }
-      } else {
         results.push({
           title: sMenu.title,
           handle: sMenu.handle,
-          status: "✅ No changes needed",
+          status: errors.length
+            ? `⚠️ Failed to update: ${errors[0].message}`
+            : `✅ Updated missing items (${missingItems.map(i => i.title).join(", ")})`,
         });
+      } else {
+        results.push({ title: sMenu.title, handle: sMenu.handle, status: "✅ No changes needed" });
       }
     }
 
     return json({
       success: true,
-      message: "✅ Menu sync completed successfully.",
+      message: "✅ Menus and menu items synced successfully.",
       results,
     });
   } catch (error) {
