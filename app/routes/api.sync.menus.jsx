@@ -128,7 +128,7 @@ export async function action() {
 
     return json({
       success: true,
-      message: "✅ Menus and menu items synced successfully.",
+      message: " Menus and menu items synced successfully.",
       results,
     });
   } catch (error) {

@@ -8,22 +8,45 @@ export default function MenuSync() {
   };
 
   return (
-    <div className="p-4 border rounded-xl shadow-md bg-white w-full max-w-lg">
-      <h2 className="text-xl font-semibold mb-2">Menu Sync</h2>
-      <p className="text-gray-600 mb-4">
+    <div style={{
+      padding: "16px",
+      width: "100%",
+      maxWidth: "600px",
+    }}>
+      <h2 style={{
+        fontSize: "20px",
+        fontWeight: "600",
+        marginBottom: "8px",
+      }}>  📋 Menu Sync
+      </h2>
+      <p style={{
+        color: "#4b5563",
+        marginBottom: "16px",
+      }}>
         Backup and push menus from staging to production store.
       </p>
 
       <button
         onClick={handleSyncMenus}
-        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
+        style={{
+          backgroundColor: fetcher.state === "submitting" ? "#3b82f6cc" : "#2563eb",
+          color: "#fff",
+          padding: "8px 16px",
+          borderRadius: "8px",
+          border: "none",
+          cursor: fetcher.state === "submitting" ? "not-allowed" : "pointer",
+          transition: "background-color 0.2s ease",
+        }}
       >
         {fetcher.state === "submitting" ? "Syncing..." : "Backup & Push Menus"}
       </button>
 
       {fetcher.data && (
-        <div className="mt-3">
-          <p className={fetcher.data.success ? "text-green-600" : "text-red-600"}>
+        <div style={{marginTop:"12px"}}>
+          <p  style={{
+            color: fetcher.data.success ? "#16a34a" : "#dc2626",
+            fontWeight: "500",
+          }}>
             {fetcher.data.message}
           </p>
         </div>
