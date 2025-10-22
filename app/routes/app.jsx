@@ -28,6 +28,7 @@ export default function App() {
         <Link to="/app/menus">Menu Sync</Link>
         <Link to="/app/locations">Location Sync</Link>
         <Link to="/app/shipping">Shipping Sync</Link>
+        <Link to="/app/discounts">Discounts Sync</Link>
       </NavMenu>
       <Outlet />
     </AppProvider>
