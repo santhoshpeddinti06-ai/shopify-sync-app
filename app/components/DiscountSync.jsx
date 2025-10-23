@@ -1,49 +1,42 @@
-import { useFetcher } from "@remix-run/react";
+import { useFetcher, useOutletContext } from "@remix-run/react";
 import { useState } from "react";
 
 export default function DiscountSync() {
+  // 🔹 Get global sync direction from App.jsx
+  const { direction } = useOutletContext();
+
   const fetcher = useFetcher();
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState([]);
   const [message, setMessage] = useState("");
 
+  // 🔹 Handle sync based on current direction
   const handleSync = async () => {
     setLoading(true);
     setMessage("");
     setResults([]);
 
-    const response = await fetch("/api/sync/discounts", {
-      method: "POST",
-    });
+    try {
+      const response = await fetch("/api/sync/discounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ direction }), // 🔹 send the current direction
+      });
 
-    const data = await response.json();
-    setLoading(false);
-    setMessage(data.message || "");
-    setResults(data.results || []);
+      const data = await response.json();
+      setLoading(false);
+      setMessage(data.message || "");
+      setResults(data.results || []);
+    } catch (err) {
+      setLoading(false);
+      setMessage(`🚨 Error syncing discounts: ${err.message}`);
+    }
   };
 
-  const containerStyle = {
-    padding: "32px",
-    maxWidth: "800px",
-  };
-
-  const titleStyle = {
-    fontSize: "20px",
-    fontWeight: "700",
-    marginBottom: "16px",
-    color: "#111827",
-    display: "flex",
-    alignItems: "center",
-    gap: "8px",
-  };
-
-  const descStyle = {
-    color: "#4b5563",
-    marginBottom: "24px",
-    fontSize: "13px",
-    lineHeight: "1.5",
-  };
-
+  // 🔹 Styles
+  const containerStyle = { padding: "32px", maxWidth: "800px" };
+  const titleStyle = { fontSize: "20px", fontWeight: "700", marginBottom: "16px", color: "#111827", display: "flex", alignItems: "center", gap: "8px" };
+  const descStyle = { color: "#4b5563", marginBottom: "24px", fontSize: "13px", lineHeight: "1.5" };
   const buttonStyle = {
     padding: "12px 24px",
     borderRadius: "12px",
@@ -54,7 +47,6 @@ export default function DiscountSync() {
     cursor: loading ? "not-allowed" : "pointer",
     transition: "background-color 0.3s",
   };
-
   const messageStyle = {
     marginTop: "20px",
     padding: "16px",
@@ -65,66 +57,29 @@ export default function DiscountSync() {
     backgroundColor: message.includes("✅") ? "#ecfdf5" : "#fef2f2",
     color: message.includes("✅") ? "#065f46" : "#991b1b",
   };
-
-  const resultContainerStyle = {
-    marginTop: "32px",
-  };
-
-  const resultTitleStyle = {
-    fontSize: "20px",
-    fontWeight: "600",
-    marginBottom: "16px",
-    borderBottom: "1px solid #e5e7eb",
-    paddingBottom: "8px",
-    color: "#374151",
-  };
-
+  const resultContainerStyle = { marginTop: "32px" };
+  const resultTitleStyle = { fontSize: "20px", fontWeight: "600", marginBottom: "16px", borderBottom: "1px solid #e5e7eb", paddingBottom: "8px", color: "#374151" };
   const resultCardStyle = (status) => ({
     padding: "16px",
     borderRadius: "12px",
     border: "1px solid",
-    backgroundColor: status.includes("✅")
-      ? "#ecfdf5"
-      : status.includes("⚠️")
-        ? "#fefce8"
-        : "#fef2f2",
-    borderColor: status.includes("✅")
-      ? "#d1fae5"
-      : status.includes("⚠️")
-        ? "#fde68a"
-        : "#fecaca",
-    color: status.includes("✅")
-      ? "#065f46"
-      : status.includes("⚠️")
-        ? "#78350f"
-        : "#991b1b",
+    backgroundColor: status.includes("✅") ? "#ecfdf5" : status.includes("⚠️") ? "#fefce8" : "#fef2f2",
+    borderColor: status.includes("✅") ? "#d1fae5" : status.includes("⚠️") ? "#fde68a" : "#fecaca",
+    color: status.includes("✅") ? "#065f46" : status.includes("⚠️") ? "#78350f" : "#991b1b",
     marginBottom: "12px",
   });
-
-  const cardTitleStyle = {
-    fontSize: "12px",
-    fontWeight: "600",
-    marginBottom: "4px",
-    display: "flex",
-    justifyContent: "space-between",
-  };
-
-  const cardValueStyle = {
-    fontSize: "14px",
-    fontWeight: "500",
-    marginBottom: "4px",
-  };
-
-  const cardStatusStyle = {
-    fontSize: "12px",
-  };
+  const cardTitleStyle = { fontSize: "12px", fontWeight: "600", marginBottom: "4px", display: "flex", justifyContent: "space-between" };
+  const cardValueStyle = { fontSize: "14px", fontWeight: "500", marginBottom: "4px" };
+  const cardStatusStyle = { fontSize: "12px" };
 
   return (
     <div style={containerStyle}>
       <h2 style={titleStyle}>🏷️ Discount Sync</h2>
       <p style={descStyle}>
-        Fetch, compare, and sync discounts from your staging store to your
-        production store.
+        Fetch, compare, and sync discounts between your staging and production stores.
+        <br />
+        <strong>Current Direction:</strong>{" "}
+        {direction === "stage-to-prod" ? "Staging → Production" : "Production → Staging"} {/* 🔹 Display direction */}
       </p>
 
       <button style={buttonStyle} onClick={handleSync} disabled={loading}>

@@ -1,6 +1,12 @@
+// File: api/sync/discounts.jsx
 import { json } from "@remix-run/node";
 
-export async function action() {
+/**
+ * Action for syncing discounts between stores.
+ * Supports bi-directional sync based on `direction` from frontend.
+ * direction: "stage-to-prod" or "prod-to-stage"
+ */
+export async function action({ request }) {
   const STAGE_SHOP = process.env.STAGE_SHOP;
   const STAGE_ACCESS_TOKEN = process.env.STAGE_ACCESS_TOKEN;
   const PROD_SHOP = process.env.PROD_SHOP;
@@ -15,103 +21,111 @@ export async function action() {
   }
 
   try {
-    // 1️⃣ Fetch discounts (price rules) from staging store
-    const stageRes = await fetch(
-      `https://${STAGE_SHOP}/admin/api/2025-10/price_rules.json`,
+    // 1️⃣ Get direction from frontend
+    const body = await request.json();
+    const direction = body.direction || "stage-to-prod"; // default
+    // 🔹 Comment: direction determines source and target stores
+
+    const sourceShop = direction === "stage-to-prod" ? STAGE_SHOP : PROD_SHOP; // 🔹 source
+    const sourceToken = direction === "stage-to-prod" ? STAGE_ACCESS_TOKEN : PROD_ACCESS_TOKEN;
+
+    const targetShop = direction === "stage-to-prod" ? PROD_SHOP : STAGE_SHOP; // 🔹 target
+    const targetToken = direction === "stage-to-prod" ? PROD_ACCESS_TOKEN : STAGE_ACCESS_TOKEN;
+
+    // 2️⃣ Fetch discounts from source store
+    const sourceRes = await fetch(
+      `https://${sourceShop}/admin/api/2025-10/price_rules.json`,
       {
         headers: {
-          "X-Shopify-Access-Token": STAGE_ACCESS_TOKEN,
+          "X-Shopify-Access-Token": sourceToken,
           "Content-Type": "application/json",
         },
       }
     );
 
-    if (!stageRes.ok) {
-      const err = await stageRes.text();
-      throw new Error(`Failed to fetch staging discounts: ${err}`);
+    if (!sourceRes.ok) {
+      const err = await sourceRes.text();
+      throw new Error(`Failed to fetch discounts from source store: ${err}`);
     }
 
-    const stageData = await stageRes.json();
-    const stageDiscounts = stageData.price_rules || [];
+    const sourceData = await sourceRes.json();
+    const sourceDiscounts = sourceData.price_rules || [];
 
-    if (stageDiscounts.length === 0) {
+    if (sourceDiscounts.length === 0) {
       return json({
         success: false,
-        message: "No discounts found in staging store.",
+        message: "No discounts found in source store.",
       });
     }
 
-    // 2️⃣ Fetch existing discounts from production store
-    const prodRes = await fetch(
-      `https://${PROD_SHOP}/admin/api/2025-10/price_rules.json`,
+    // 3️⃣ Fetch existing discounts from target store
+    const targetRes = await fetch(
+      `https://${targetShop}/admin/api/2025-10/price_rules.json`,
       {
         headers: {
-          "X-Shopify-Access-Token": PROD_ACCESS_TOKEN,
+          "X-Shopify-Access-Token": targetToken,
           "Content-Type": "application/json",
         },
       }
     );
 
-    const prodData = await prodRes.json();
-    const prodDiscounts = prodData.price_rules || [];
+    const targetData = await targetRes.json();
+    const targetDiscounts = targetData.price_rules || [];
 
     const results = [];
 
-    // 3️⃣ Compare and sync
-    for (const sRule of stageDiscounts) {
-      const match = prodDiscounts.find(
-        (p) => p.title === sRule.title || p.id === sRule.id
+    // 4️⃣ Compare and sync
+    for (const rule of sourceDiscounts) {
+      const match = targetDiscounts.find(
+        (t) => t.title === rule.title || t.id === rule.id
       );
 
       if (match) {
         results.push({
-          title: sRule.title,
-          code: sRule.title,
-          value: sRule.value,
-          status: "✅ Exists in production",
+          title: rule.title,
+          code: rule.title,
+          value: rule.value,
+          status: "✅ Exists in target store",
         });
         continue;
       }
 
-      // 🧠 Build payload for creating new discount in production
+      // 🔹 Build payload for creating new discount in target store
       try {
-        const createPayload = {
+        const payload = {
           price_rule: {
-            title: sRule.title,
-            target_type: sRule.target_type || "line_item",
-            target_selection: sRule.target_selection || "all",
-            allocation_method: sRule.allocation_method || "across",
-            value_type: sRule.value_type || "percentage",
-            value: sRule.value,
-            customer_selection: sRule.customer_selection || "all",
-            starts_at: sRule.starts_at || new Date().toISOString(),
-
-            // Include entitlements (if any)
-            entitled_product_ids: sRule.entitled_product_ids || [],
-            entitled_collection_ids: sRule.entitled_collection_ids || [],
-            entitled_variant_ids: sRule.entitled_variant_ids || [],
+            title: rule.title,
+            target_type: rule.target_type || "line_item",
+            target_selection: rule.target_selection || "all",
+            allocation_method: rule.allocation_method || "across",
+            value_type: rule.value_type || "percentage",
+            value: rule.value,
+            customer_selection: rule.customer_selection || "all",
+            starts_at: rule.starts_at || new Date().toISOString(),
+            entitled_product_ids: rule.entitled_product_ids || [],
+            entitled_collection_ids: rule.entitled_collection_ids || [],
+            entitled_variant_ids: rule.entitled_variant_ids || [],
           },
         };
 
-        // 🛠 If no entitlements are present, apply discount to all
+        // 🛠 Ensure target_selection = all if no entitlements
         if (
-          !createPayload.price_rule.entitled_product_ids.length &&
-          !createPayload.price_rule.entitled_collection_ids.length &&
-          !createPayload.price_rule.entitled_variant_ids.length
+          !payload.price_rule.entitled_product_ids.length &&
+          !payload.price_rule.entitled_collection_ids.length &&
+          !payload.price_rule.entitled_variant_ids.length
         ) {
-          createPayload.price_rule.target_selection = "all";
+          payload.price_rule.target_selection = "all";
         }
 
-        // 4️⃣ Create price rule in production
         const createRes = await fetch(
-          `https://${PROD_SHOP}/admin/api/2025-10/price_rules.json`,
+          `https://${targetShop}/admin/api/2025-10/price_rules.json`,
           {
             method: "POST",
             headers: {
-              "X-Shopify-Access-Token": PROD_ACCESS_TOKEN,
+              "X-Shopify-Access-Token": targetToken,
               "Content-Type": "application/json",
             },
-            body: JSON.stringify(createPayload),
+            body: JSON.stringify(payload),
           }
         );
 
@@ -119,33 +133,33 @@ export async function action() {
 
         if (createRes.ok) {
           results.push({
-            title: sRule.title,
-            code: sRule.title,
-            value: sRule.value,
-            status: "✅ Created in production",
+            title: rule.title,
+            code: rule.title,
+            value: rule.value,
+            status: `✅ Created in target store`,
           });
         } else {
           results.push({
-            title: sRule.title,
-            code: sRule.title,
-            value: sRule.value,
+            title: rule.title,
+            code: rule.title,
+            value: rule.value,
             status: `❌ Failed to create (${JSON.stringify(createData)})`,
           });
         }
       } catch (err) {
         results.push({
-          title: sRule.title,
-          code: sRule.title,
-          value: sRule.value,
+          title: rule.title,
+          code: rule.title,
+          value: rule.value,
           status: `❌ Error: ${err.message}`,
         });
       }
     }
 
-    // ✅ Return sync results
+    // 5️⃣ Return results with direction info
     return json({
       success: true,
-      message: "✅ Discounts synced successfully.",
+      message: `✅ Discounts synced successfully (${direction === "stage-to-prod" ? "staging → production" : "production → staging"})`,
       results,
     });
   } catch (error) {
