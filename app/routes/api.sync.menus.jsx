@@ -1,6 +1,7 @@
+// app/routes/api.sync.menus.jsx
 import { json } from "@remix-run/node";
 
-// Shopify GraphQL request helper
+// Shopify GraphQL helper
 async function shopifyGraphQL(shop, token, query, variables = {}) {
   const res = await fetch(`https://${shop}/admin/api/2025-10/graphql.json`, {
     method: "POST",
@@ -15,7 +16,7 @@ async function shopifyGraphQL(shop, token, query, variables = {}) {
   return data.data;
 }
 
-// Fetch menus and items
+// Fetch menus from a store
 async function fetchMenus(shop, token) {
   const query = `
     {
@@ -40,28 +41,63 @@ async function fetchMenus(shop, token) {
   return data.menus.edges.map(e => e.node);
 }
 
-export async function action() {
-  const { STAGE_SHOP, STAGE_ACCESS_TOKEN, PROD_SHOP, PROD_ACCESS_TOKEN } = process.env;
-
-  if (!STAGE_SHOP || !STAGE_ACCESS_TOKEN || !PROD_SHOP || !PROD_ACCESS_TOKEN) {
-    return json({
-      success: false,
-      message: "❌ Missing .env values (STAGE_SHOP, PROD_SHOP, etc.)",
-    });
-  }
-
+// ----------------- Loader -----------------
+export const loader = async ({ request }) => {
   try {
-    const [stagingMenus, prodMenus] = await Promise.all([
-      fetchMenus(STAGE_SHOP, STAGE_ACCESS_TOKEN),
-      fetchMenus(PROD_SHOP, PROD_ACCESS_TOKEN),
+    const url = new URL(request.url);
+    const direction = url.searchParams.get("direction") || "stage-to-prod";
+
+    const sourceShop =
+      direction === "stage-to-prod" ? process.env.STAGE_SHOP : process.env.PROD_SHOP;
+    const sourceToken =
+      direction === "stage-to-prod"
+        ? process.env.STAGE_ACCESS_TOKEN
+        : process.env.PROD_ACCESS_TOKEN;
+
+    const menus = await fetchMenus(sourceShop, sourceToken);
+    return json({ menus, direction });
+  } catch (error) {
+    console.error("❌ Error fetching menus:", error);
+    return json({ error: error.message || "Failed to fetch menus" }, { status: 500 });
+  }
+};
+
+// ----------------- Action -----------------
+export const action = async ({ request }) => {
+  try {
+    const formData = await request.formData();
+    const actionType = formData.get("action");
+    const direction = formData.get("direction") || "stage-to-prod";
+
+    if (actionType !== "sync") {
+      return json({ error: "Invalid action" }, { status: 400 });
+    }
+
+    const sourceShop =
+      direction === "stage-to-prod" ? process.env.STAGE_SHOP : process.env.PROD_SHOP;
+    const sourceToken =
+      direction === "stage-to-prod"
+        ? process.env.STAGE_ACCESS_TOKEN
+        : process.env.PROD_ACCESS_TOKEN;
+
+    const targetShop =
+      direction === "stage-to-prod" ? process.env.PROD_SHOP : process.env.STAGE_SHOP;
+    const targetToken =
+      direction === "stage-to-prod"
+        ? process.env.PROD_ACCESS_TOKEN
+        : process.env.STAGE_ACCESS_TOKEN;
+
+    const [sourceMenus, targetMenus] = await Promise.all([
+      fetchMenus(sourceShop, sourceToken),
+      fetchMenus(targetShop, targetToken),
     ]);
 
     const results = [];
 
-    for (const sMenu of stagingMenus) {
-      const match = prodMenus.find(m => m.handle === sMenu.handle);
+    for (const sMenu of sourceMenus) {
+      const match = targetMenus.find(m => m.handle === sMenu.handle);
 
-      // ----------------- CREATE menu if missing -----------------
+      // CREATE menu if missing
       if (!match) {
         const createMutation = `
           mutation menuCreate($title: String!, $handle: String!, $items: [MenuItemCreateInput!]!) {
@@ -76,19 +112,18 @@ export async function action() {
           handle: sMenu.handle,
           items: sMenu.items.map(i => ({ title: i.title, type: i.type, url: i.url })),
         };
-
-        const result = await shopifyGraphQL(PROD_SHOP, PROD_ACCESS_TOKEN, createMutation, variables);
+        const result = await shopifyGraphQL(targetShop, targetToken, createMutation, variables);
         const errors = result.menuCreate.userErrors;
 
         results.push({
           title: sMenu.title,
           handle: sMenu.handle,
-          status: errors.length ? `⚠️ Failed to create: ${errors[0].message}` : "✅ Created with items",
+          status: errors.length ? `⚠️ Failed to create: ${errors[0].message}` : "✅ Created",
         });
         continue;
       }
 
-      // ----------------- UPDATE existing menu items -----------------
+      // UPDATE missing items
       const missingItems = sMenu.items.filter(
         i => !match.items.some(p => p.title === i.title)
       );
@@ -110,8 +145,7 @@ export async function action() {
             ...missingItems.map(i => ({ title: i.title, url: i.url, type: i.type })),
           ],
         };
-
-        const result = await shopifyGraphQL(PROD_SHOP, PROD_ACCESS_TOKEN, updateMutation, variables);
+        const result = await shopifyGraphQL(targetShop, targetToken, updateMutation, variables);
         const errors = result.menuUpdate.userErrors;
 
         results.push({
@@ -128,11 +162,12 @@ export async function action() {
 
     return json({
       success: true,
-      message: " Menus and menu items synced successfully.",
       results,
+      direction,
+      message: `✅ Menus synced successfully (${direction === "stage-to-prod" ? "Staging → Production" : "Production → Staging"})`,
     });
   } catch (error) {
     console.error("❌ Menu sync error:", error);
     return json({ success: false, message: error.message });
   }
-}
+};

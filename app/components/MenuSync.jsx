@@ -1,69 +1,83 @@
-import { useFetcher } from "@remix-run/react";
+// app/components/MenusSync.jsx
+import { useEffect, useState } from "react";
+import { useFetcher, useOutletContext } from "@remix-run/react";
 
-export default function MenuSync() {
+export default function MenusSync() {
   const fetcher = useFetcher();
 
-  const handleSyncMenus = () => {
-    fetcher.submit({}, { method: "post", action: "/api/sync/menus" });
+  // 🔹 Read global direction from Outlet context (provided by parent layout)
+  const outletContext = useOutletContext();
+  const globalDirection = outletContext?.direction || "stage-to-prod";
+
+  const [direction, setDirection] = useState(globalDirection);
+
+  // Keep local direction in sync with global direction
+  useEffect(() => {
+    setDirection(globalDirection);
+  }, [globalDirection]);
+
+  // Auto fetch menus whenever direction changes
+  useEffect(() => {
+    fetcher.load(`/api/sync/menus?direction=${direction}`);
+  }, [direction]);
+
+  // Handle sync button click
+  const handleSync = () => {
+    const formData = new FormData();
+    formData.append("action", "sync");
+    formData.append("direction", direction);
+    fetcher.submit(formData, { method: "post", action: "/api/sync/menus" });
   };
 
   return (
-    <div className="p-4 border rounded-xl shadow-md bg-white w-full max-w-lg">
-      <h2 className="text-xl font-semibold mb-2">Menu Sync</h2>
-      <p className="text-gray-600 mb-4">
-        Backup and push menus & menu items from <strong>staging</strong> to <strong>production</strong> store.
+    <div style={{ padding: "16px" }}>
+      <h2 style={{ fontSize: "20px", fontWeight: 600, marginBottom: "12px" }}>
+        📋 Menus Sync
+      </h2>
+
+      {/* Current Direction */}
+      <p style={{ color: "#555", marginBottom: "12px" }}>
+        🔁 Current Direction:{" "}
+        <strong>
+          {direction === "stage-to-prod" ? "Staging → Production" : "Production → Staging"}
+        </strong>
       </p>
 
-      <button
-        onClick={handleSyncMenus}
-        disabled={fetcher.state === "submitting"}
-        className={`px-4 py-2 rounded-lg text-white ${
-          fetcher.state === "submitting"
-            ? "bg-gray-400 cursor-not-allowed"
-            : "bg-blue-600 hover:bg-blue-700"
-        }`}
-      >
-        {fetcher.state === "submitting" ? "Syncing Menus..." : "Backup & Push Menus"}
-      </button>
+      <div style={{ marginBottom: "12px" }}>
+        <button
+          type="button"
+          onClick={handleSync}
+          disabled={fetcher.state === "submitting"}
+          style={{
+            backgroundColor: fetcher.state === "submitting" ? "#9ca3af" : "#2563eb",
+            color: "#fff",
+            padding: "8px 16px",
+            borderRadius: "6px",
+            cursor: fetcher.state === "submitting" ? "not-allowed" : "pointer",
+            border: "none",
+          }}
+        >
+          {fetcher.state === "submitting" ? "Syncing..." : "Sync Menus"}
+        </button>
+      </div>
 
-      {fetcher.data && (
-        <div className="mt-4">
-          <p
-            className={`font-medium ${
-              fetcher.data.success ? "text-green-600" : "text-red-600"
-            }`}
-          >
-            {fetcher.data.message}
-          </p>
-
-          {fetcher.data.results && (
-            <ul className="mt-2 space-y-3">
-              {fetcher.data.results.map((menu) => (
-                <li key={menu.handle} className="p-2 border rounded">
-                  <div className="flex justify-between items-center">
-                    <span className="font-semibold">{menu.title}</span>
-                    <span
-                      className={`font-medium ${
-                        menu.status.startsWith("✅")
-                          ? "text-green-600"
-                          : "text-orange-600"
-                      }`}
-                    >
-                      {menu.status}
-                    </span>
-                  </div>
-
-                  {/* Show missing or added menu items */}
-                  {menu.missingItems?.length > 0 && (
-                    <div className="mt-1 text-sm text-red-600">
-                      Missing / Added items: {menu.missingItems.join(", ")}
-                    </div>
-                  )}
-                  {menu.extraItems?.length > 0 && (
-                    <div className="mt-1 text-sm text-gray-600">
-                      Extra items in production: {menu.extraItems.join(", ")}
-                    </div>
-                  )}
+      {/* Show synced menus */}
+      {fetcher.data?.message && (
+        <div
+          style={{
+            marginTop: "12px",
+            padding: "8px",
+            border: "1px solid #86efac",
+            backgroundColor: "#f0fdf4",
+            borderRadius: "6px",
+          }}
+        >
+          {fetcher.data.message}
+          {fetcher.data.results?.length > 0 && (
+            <ul style={{ marginTop: "8px" }}>
+              {fetcher.data.results.map((r) => (
+                <li key={r.handle}>
+                  {r.title} — {r.status}
                 </li>
               ))}
             </ul>
