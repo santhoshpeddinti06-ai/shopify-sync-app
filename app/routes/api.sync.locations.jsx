@@ -40,36 +40,46 @@ async function fetchLocations(shop, token) {
   return data.locations.edges.map((e) => e.node);
 }
 
-export async function action() {
+// ----------------- Action -----------------
+export async function action({ request }) {
   const { STAGE_SHOP, STAGE_ACCESS_TOKEN, PROD_SHOP, PROD_ACCESS_TOKEN } = process.env;
 
   if (!STAGE_SHOP || !STAGE_ACCESS_TOKEN || !PROD_SHOP || !PROD_ACCESS_TOKEN) {
-    return json({
-      success: false,
-      message: "❌ Missing .env values (STAGE_SHOP, PROD_SHOP, etc.)",
-    });
+    return json({ success: false, message: "❌ Missing .env values" });
   }
 
   try {
-    // Fetch locations from both stores
-    const [stagingLocations, prodLocations] = await Promise.all([
-      fetchLocations(STAGE_SHOP, STAGE_ACCESS_TOKEN),
-      fetchLocations(PROD_SHOP, PROD_ACCESS_TOKEN),
+    const formData = await request.formData();
+    const direction = formData.get("direction") || "stage-to-prod";
+
+    // Decide source and target based on direction
+    const sourceShop = direction === "stage-to-prod" ? STAGE_SHOP : PROD_SHOP;
+    const sourceToken = direction === "stage-to-prod" ? STAGE_ACCESS_TOKEN : PROD_ACCESS_TOKEN;
+
+    const targetShop = direction === "stage-to-prod" ? PROD_SHOP : STAGE_SHOP;
+    const targetToken = direction === "stage-to-prod" ? PROD_ACCESS_TOKEN : STAGE_ACCESS_TOKEN;
+
+    const [sourceLocations, targetLocations] = await Promise.all([
+      fetchLocations(sourceShop, sourceToken),
+      fetchLocations(targetShop, targetToken),
     ]);
 
     // Compare locations
-    const results = stagingLocations.map((sLoc) => {
-      const match = prodLocations.find((pLoc) => pLoc.name === sLoc.name);
+    const results = sourceLocations.map((sLoc) => {
+      const match = targetLocations.find((tLoc) => tLoc.name === sLoc.name);
       return {
         name: sLoc.name,
         address: `${sLoc.address.address1}, ${sLoc.address.city}, ${sLoc.address.province}, ${sLoc.address.country}, ${sLoc.address.zip}`,
-        status: match ? "✅ Exists in production" : "⚠️ Missing in production",
+        status: match
+          ? "✅ Already exists in target store"
+          : "⚠️ Missing in target store",
       };
     });
 
     return json({
       success: true,
-      message: "✅ Locations fetched and compared successfully.",
+      direction,
+      message: `✅ Locations compared successfully (${direction === "stage-to-prod" ? "Staging → Production" : "Production → Staging"})`,
       results,
     });
   } catch (error) {
