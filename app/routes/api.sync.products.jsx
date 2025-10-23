@@ -8,19 +8,21 @@ import {
 export const loader = async ({ request }) => {
   try {
     const url = new URL(request.url);
-    const direction = url.searchParams.get("direction") || "stage-to-prod"; // 🔹 use direction
+    const direction = url.searchParams.get("direction") || "stage-to-prod"; // current sync direction
 
+    // 🔹 Determine source store (based on direction)
     const sourceShop =
-      direction === "stage-to-prod" ? process.env.STAGE_SHOP : process.env.PROD_SHOP; // 🔹 source
+      direction === "stage-to-prod" ? process.env.STAGE_SHOP : process.env.PROD_SHOP;
     const sourceToken =
       direction === "stage-to-prod"
         ? process.env.STAGE_ACCESS_TOKEN
-        : process.env.PROD_ACCESS_TOKEN; // 🔹 token
+        : process.env.PROD_ACCESS_TOKEN;
 
     const products = await fetchProductsFromStore(sourceShop, sourceToken);
-    return json({ products, direction }); // 🔹 send direction for frontend display
+
+    return json({ products, direction });
   } catch (err) {
-    console.error("Error fetching products:", err);
+    console.error("❌ Error fetching products:", err);
     return json({ error: err.message || "Failed to fetch products" }, { status: 500 });
   }
 };
@@ -29,13 +31,13 @@ export const action = async ({ request }) => {
   try {
     const formData = await request.formData();
     const actionType = formData.get("action");
-    const direction = formData.get("direction") || "stage-to-prod"; // 🔹 get direction from frontend
+    const direction = formData.get("direction") || "stage-to-prod";
 
     if (actionType !== "sync") {
       return json({ error: "Invalid action" }, { status: 400 });
     }
 
-    // 🔹 Decide source and target based on direction
+    // 🔹 Define source and target based on direction
     const sourceShop =
       direction === "stage-to-prod" ? process.env.STAGE_SHOP : process.env.PROD_SHOP;
     const sourceToken =
@@ -50,31 +52,33 @@ export const action = async ({ request }) => {
         ? process.env.PROD_ACCESS_TOKEN
         : process.env.STAGE_ACCESS_TOKEN;
 
-    // Fetch products from source and target
+    // 🔹 Fetch products from both stores
     const sourceProducts = await fetchProductsFromStore(sourceShop, sourceToken);
     const targetProducts = await fetchProductsFromStore(targetShop, targetToken);
 
-    // 🔹 Build set of existing identifiers (handle + SKU) to avoid duplicates
-    const existingIdentifiers = new Set();
-    targetProducts.forEach((p) => {
-      if (p.handle) existingIdentifiers.add(p.handle);
-      p.variants?.forEach((v) => {
-        if (v.sku) existingIdentifiers.add(v.sku);
-      });
+    if (!Array.isArray(sourceProducts) || !Array.isArray(targetProducts)) {
+      throw new Error("Invalid products data fetched from Shopify API");
+    }
+
+    // 🔹 Build a map of existing products in target by handle or title
+    const targetProductMap = new Map();
+    for (const p of targetProducts) {
+      const key = p.handle?.toLowerCase() || p.title?.toLowerCase();
+      if (key) targetProductMap.set(key, p);
+    }
+
+    // 🔹 Find products that are missing in target
+    const productsToSync = sourceProducts.filter((p) => {
+      const key = p.handle?.toLowerCase() || p.title?.toLowerCase();
+      if (!key) return true; // no handle/title → try syncing
+      return !targetProductMap.has(key); // only push if not existing
     });
 
-    // 🔹 Filter only new products that do not exist in target
-    const newProducts = sourceProducts.filter((p) => {
-      if (existingIdentifiers.has(p.handle)) return false;
-      if (p.variants?.some((v) => v.sku && existingIdentifiers.has(v.sku))) return false;
-      return true;
-    });
-
-    if (!newProducts.length) {
+    if (productsToSync.length === 0) {
       return json({
         success: true,
         syncedCount: 0,
-        message: `✅ All products are up to date — no new products to sync.`,
+        message: "✅ All products are up to date — no missing products to sync.",
         direction,
       });
     }
@@ -83,31 +87,30 @@ export const action = async ({ request }) => {
     const syncedTitles = [];
     const results = [];
 
-    for (const product of newProducts) {
+    // 🔹 Push missing products safely
+    for (const product of productsToSync) {
       try {
         await pushProductToStore(targetShop, targetToken, product);
         syncedCount++;
         syncedTitles.push(product.title);
-        results.push({
-          title: product.title,
-          status: "✅ Synced",
-        });
+        results.push({ title: product.title, status: "✅ Synced" });
       } catch (err) {
-        console.error(`❌ Failed to push "${product.title}":`, err);
-        results.push({
-          title: product.title,
-          status: `❌ Failed: ${err.message}`,
-        });
+        console.error(`❌ Failed to sync "${product.title}":`, err);
+        results.push({ title: product.title, status: `❌ Failed: ${err.message}` });
       }
     }
+
+    const message = `✅ ${syncedCount} new product${
+      syncedCount !== 1 ? "s" : ""
+    } synced successfully (${direction === "stage-to-prod" ? "staging → production" : "production → staging"}).`;
 
     return json({
       success: true,
       syncedCount,
       syncedProducts: syncedTitles,
-      message: `✅ ${syncedCount} new product${syncedCount > 1 ? "s" : ""} synced successfully`,
       results,
-      direction, // 🔹 send current direction for frontend display
+      message,
+      direction,
     });
   } catch (err) {
     console.error("❌ Product sync error:", err);
