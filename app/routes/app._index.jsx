@@ -28,6 +28,7 @@ export default function Index() {
     { title: "Location Sync", path: "/app/locations" },
     { title: "Shipping Sync", path: "/app/shipping" },
     { title: "Discounts Sync", path: "/app/discounts" },
+    {title: "Tags Sync",path: "/app/tags"}
   ];
 
   return (

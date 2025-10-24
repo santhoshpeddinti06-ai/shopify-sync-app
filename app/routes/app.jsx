@@ -43,6 +43,7 @@ export default function App() {
         <Link to="/app/locations">Location Sync</Link>
         <Link to="/app/shipping">Shipping Sync</Link>
         <Link to="/app/discounts">Discounts Sync</Link>
+        <Link to="/app/tags">Tag Sync</Link>
       </NavMenu>
 
       {/*       ==========Global Sync Direction Selector ========== */}
