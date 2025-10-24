@@ -2,8 +2,8 @@
 import { json } from "@remix-run/node";
 
 export async function loader() {
-  const STAGE_SHOP = process.env.STAGE_SHOP; // e.g. santosh-dev2.myshopify.com
-  const STAGE_ACCESS_TOKEN = process.env.STAGE_ACCESS_TOKEN; // your stage access token
+  const STAGE_SHOP = process.env.STAGE_SHOP;
+  const STAGE_ACCESS_TOKEN = process.env.STAGE_ACCESS_TOKEN;
 
   if (!STAGE_SHOP || !STAGE_ACCESS_TOKEN) {
     return json({ error: "Missing stage shop or token" }, { status: 400 });

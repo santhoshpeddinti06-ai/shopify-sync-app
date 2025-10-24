@@ -13,17 +13,14 @@ export default function ThemeSync() {
 
   const handlePush = () => {
     fetcher.submit(
-      {
-        action: "push",
-        themeId: import.meta.env.VITE_PRODUCT_THEME_ID || "",
-      },
+      { action: "push" },
       { method: "post", action: "/api/sync/theme-settings" }
     );
   };
 
   return (
     <div style={{ padding: 20 }}>
-      <h2 style={{ fontSize: 20, fontWeight: "600",marginBottom:"2rem" }}>🎨 Theme Settings Sync</h2>
+      <h2 style={{ fontSize: 20, fontWeight: 600, marginBottom: "2rem" }}>🎨 Theme Settings Sync</h2>
 
       <button
         onClick={handleBackup}
@@ -33,11 +30,13 @@ export default function ThemeSync() {
           color: "#fff",
           padding: "8px 16px",
           borderRadius: 6,
-          marginRight: 40,
+          marginRight: 20,
           cursor: "pointer",
         }}
       >
-        {fetcher.state === "submitting" ? "Backing up..." : "Backup from Staging"}
+        {fetcher.state === "submitting" && fetcher.formData?.get("action") === "backup"
+          ? "Backing up..."
+          : "Backup from Staging"}
       </button>
 
       <button
@@ -51,7 +50,9 @@ export default function ThemeSync() {
           cursor: "pointer",
         }}
       >
-        {fetcher.state === "submitting" ? "Pushing..." : "Push to Production"}
+        {fetcher.state === "submitting" && fetcher.formData?.get("action") === "push"
+          ? "Pushing..."
+          : "Push to Production"}
       </button>
 
       {fetcher.data?.message && (
